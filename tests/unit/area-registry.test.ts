@@ -20,6 +20,7 @@ const officialContracts = JSON.parse(
     fields: string[];
     filters: string[];
     joins: string[];
+    orderFields: string[];
     createFields: string[];
     updateFields: string[];
   }
@@ -42,6 +43,7 @@ describe('AroFlo area registry', () => {
       expect(Object.keys(contract.fields)).toEqual(source.fields);
       expect(Object.keys(contract.filters)).toEqual(source.filters);
       expect(contract.joins).toEqual(source.joins);
+      expect(contract.orderFields).toEqual(source.orderFields);
       expect(contract.createFields).toEqual(source.createFields);
       expect(contract.updateFields).toEqual(source.updateFields);
       expect(describeArea(area).fields).toEqual(source.fields);
@@ -57,10 +59,10 @@ describe('AroFlo area registry', () => {
       area: 'tasks',
       filters: [
         { field: 'jobnumber', operator: 'eq', value: 'Job & Co' },
-        { field: 'duedate', operator: 'gte', value: '2026-01-01' }
+        { field: 'duedate', operator: 'gt', value: '2026-01-01' }
       ],
       joins: ['notes', 'project'],
-      order: { field: 'duedate', direction: 'desc' },
+      order: { field: 'daterequested', direction: 'desc' },
       page: 2,
       pageSize: 25
     });
@@ -68,10 +70,10 @@ describe('AroFlo area registry', () => {
     expect(pairs).toEqual([
       ['zone', 'tasks'],
       ['where', 'and|jobnumber|=|Job & Co'],
-      ['where', 'and|duedate|>=|2026-01-01'],
+      ['where', 'and|duedate|>|2026-01-01'],
       ['join', 'notes'],
       ['join', 'project'],
-      ['order', 'duedate|desc'],
+      ['order', 'daterequested|desc'],
       ['page', 2],
       ['pageSize', 25]
     ]);
@@ -83,7 +85,7 @@ describe('AroFlo area registry', () => {
     const cases = [
       () => getAreaDefinition(unsafe as never),
       () => compileReadQuery({ area: 'tasks', filters: [{ field: unsafe, operator: 'eq', value: 'x' }] }),
-      () => compileReadQuery({ area: 'tasks', filters: [{ field: 'jobnumber', operator: 'contains', value: 'x' }] }),
+      () => compileReadQuery({ area: 'tasks', filters: [{ field: 'jobnumber', operator: 'startsWith', value: 'x' }] }),
       () => compileReadQuery({ area: 'tasks', joins: [unsafe] }),
       () => compileReadQuery({ area: 'tasks', order: { field: unsafe, direction: 'asc' } }),
       () => compileReadQuery({ area: 'tasks', order: { field: 'jobnumber', direction: 'up' as never } }),
@@ -102,5 +104,74 @@ describe('AroFlo area registry', () => {
   it('continues to classify invoices as financial', () => {
     expect(isFinancialArea('invoices')).toBe(true);
     expect(isFinancialArea('tasks')).toBe(false);
+  });
+
+  it('includes the formal JOIN tables as well as dedicated request JOINs', () => {
+    const requiredJoins = {
+      locations: ['customfields'],
+      quotes: ['project'],
+      invoices: ['documentsandphotos', 'notes'],
+      schedules: ['archived', 'periodicfuturedates'],
+      assets: ['locationcustomfields']
+    } as const;
+
+    for (const [area, joins] of Object.entries(requiredJoins)) {
+      const definition = getAreaDefinition(area as (typeof AREAS)[number]);
+      for (const join of joins) expect(definition.joins).toContain(join);
+    }
+    expect(getAreaDefinition('clients').joins).not.toContain('notes');
+  });
+
+  it('accepts only formal order fields, including quote-only quotename', () => {
+    expect(compileReadQuery({ area: 'quotes', order: { field: 'quotename', direction: 'asc' } })).toEqual([
+      ['zone', 'quotes'],
+      ['order', 'quotename|asc'],
+      ['page', 1],
+      ['pageSize', 100]
+    ]);
+    expect(() => compileReadQuery({ area: 'quotes', order: { field: 'quoteid', direction: 'asc' } })).toThrow(
+      'Invalid AroFlo search input'
+    );
+  });
+
+  it('preserves documented field metadata for values that affect safety and writes', () => {
+    const userPassword = getAreaDefinition('users').fields.password;
+    const taskDueDate = getAreaDefinition('tasks').fields.duedate;
+    const inventoryCost = getAreaDefinition('inventory').fields.costex;
+
+    expect(userPassword).toMatchObject({ type: 'string', sensitive: true, requiredOnCreate: true, mutable: false });
+    expect(taskDueDate).toMatchObject({ type: 'date', mutable: true });
+    expect(inventoryCost).toMatchObject({ type: 'number', requiredOnCreate: true, mutable: true });
+  });
+
+  it('rejects prototype and unsupported prefix operators through the sanitized validation boundary', () => {
+    for (const filter of [
+      { field: 'toString', operator: 'eq' as const, value: 'x' },
+      { field: 'jobnumber', operator: 'startsWith' as const, value: 'x' }
+    ]) {
+      expect(() => compileReadQuery({ area: 'tasks', filters: [filter] })).toThrow('Invalid AroFlo search input');
+    }
+  });
+
+  it('does not expose mutable contracts or a mutable registry map at runtime', () => {
+    const definition = getAreaDefinition('tasks');
+    expect(Object.isFrozen(definition)).toBe(true);
+    expect(Object.isFrozen(definition.fields)).toBe(true);
+    expect(Object.isFrozen(definition.joins)).toBe(true);
+    expect(Object.isFrozen(AREA_DEFINITIONS)).toBe(true);
+
+    const mutableView = AREA_DEFINITIONS as unknown as Map<string, typeof definition>;
+    expect(() => mutableView.set('untrusted', definition)).toThrow('AroFlo area registry is immutable');
+    expect(mutableView.has('untrusted')).toBe(false);
+
+    let insertedThroughPrototype = false;
+    try {
+      expect(() => {
+        Map.prototype.set.call(mutableView, 'untrusted', definition);
+        insertedThroughPrototype = mutableView.has('untrusted');
+      }).toThrow();
+    } finally {
+      if (insertedThroughPrototype) Map.prototype.delete.call(mutableView, 'untrusted');
+    }
   });
 });
