@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.validation-deps/
+.env
+.env.*
+!.env.example
+coverage/
+*.log
+certificates/
+*.tgz
+*.tar.gz
+*.zip

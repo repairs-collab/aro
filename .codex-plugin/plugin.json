@@ -1,0 +1,19 @@
+{
+  "name": "aroflo-connector",
+  "version": "0.1.0",
+  "description": "Safely access AroFlo records through local or hosted MCP.",
+  "author": {
+    "name": "Codex"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Aroflo Connector",
+    "shortDescription": "Safely access AroFlo records through MCP.",
+    "longDescription": "Safely access AroFlo records through local or hosted MCP.",
+    "developerName": "Codex",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Help me access AroFlo records safely."
+  },
+  "mcpServers": ".mcp.json"
+}
