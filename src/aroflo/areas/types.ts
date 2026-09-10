@@ -38,6 +38,7 @@ export interface SearchInput {
   order?: { readonly field: string; readonly direction: 'asc' | 'desc' };
   page?: number;
   pageSize?: number;
+  fresh?: boolean;
 }
 
 export type ReadQuery = readonly EncodedPair[];

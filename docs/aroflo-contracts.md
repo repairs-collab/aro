@@ -25,3 +25,7 @@ The source’s formal tables are unioned with dedicated official scripts. `field
 - `linkprocessed` remains a read filter where official scripts use it; no link-processing mutation is exposed.
 
 `tests/fixtures/official-contract-summary.json` is the complete ordered, public-only machine-readable summary. It contains no customer values or credentials.
+
+## Transport safety limits
+
+The client defaults to a conservative FIFO budget of 1 request per second, 60 per rolling minute, and a 1,900-request Sydney-local daily soft limit. The supplied official collection documents current ceilings of 3 requests per second, 120 per minute, and 2,000 per day; configured overrides are capped at those values. Responses are capped at 3.5 MB, a requested page may not exceed 10, and no response may return more than 500 records.

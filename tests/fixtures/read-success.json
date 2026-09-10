@@ -1,0 +1,11 @@
+{
+  "status": "0",
+  "statusmessage": "Login OK",
+  "zoneresponse": {
+    "tasks": [
+      { "taskid": "task-1", "taskname": "Fake task" }
+    ]
+  },
+  "currentpage": 1,
+  "totalpages": 1
+}
