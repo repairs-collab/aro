@@ -138,10 +138,25 @@ describe('AroFlo area registry', () => {
     const userPassword = getAreaDefinition('users').fields.password;
     const taskDueDate = getAreaDefinition('tasks').fields.duedate;
     const inventoryCost = getAreaDefinition('inventory').fields.costex;
+    const assetOrderCode = getAreaDefinition('assets').fields.ordercode;
 
     expect(userPassword).toMatchObject({ type: 'string', sensitive: true, requiredOnCreate: true, mutable: false });
     expect(taskDueDate).toMatchObject({ type: 'date', mutable: true });
     expect(inventoryCost).toMatchObject({ type: 'number', requiredOnCreate: true, mutable: true });
+    expect(assetOrderCode).toEqual({ apiName: 'ordercode', type: 'string', mutable: true });
+    expect(getAreaDefinition('assets').createFields).not.toContain('ordercode');
+  });
+
+  it('uses the official Assets formal WHERE field spelling', () => {
+    expect(compileReadQuery({
+      area: 'assets',
+      filters: [{ field: 'lastupdatedatetimeutc', operator: 'eq', value: '2026-01-01T00:00:00Z' }]
+    })).toEqual([
+      ['zone', 'assets'],
+      ['where', 'and|lastupdatedatetimeutc|=|2026-01-01T00:00:00Z'],
+      ['page', 1],
+      ['pageSize', 100]
+    ]);
   });
 
   it('rejects prototype and unsupported prefix operators through the sanitized validation boundary', () => {
@@ -158,6 +173,12 @@ describe('AroFlo area registry', () => {
     expect(Object.isFrozen(definition)).toBe(true);
     expect(Object.isFrozen(definition.fields)).toBe(true);
     expect(Object.isFrozen(definition.joins)).toBe(true);
+    const quoteDefinition = getAreaDefinition('quotes');
+    expect(Object.isFrozen(quoteDefinition.orderFields)).toBe(true);
+    expect(() => (quoteDefinition.orderFields as string[]).push('quoteid')).toThrow(TypeError);
+    expect(() => compileReadQuery({ area: 'quotes', order: { field: 'quoteid', direction: 'asc' } })).toThrow(
+      'Invalid AroFlo search input'
+    );
     expect(Object.isFrozen(AREA_DEFINITIONS)).toBe(true);
 
     const mutableView = AREA_DEFINITIONS as unknown as Map<string, typeof definition>;

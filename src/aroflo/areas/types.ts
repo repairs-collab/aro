@@ -69,6 +69,7 @@ export function defineArea<const T extends AreaDefinition>(definition: T): Reado
     ...definition,
     filters: Object.freeze(filters),
     joins: Object.freeze([...definition.joins]),
+    orderFields: Object.freeze([...definition.orderFields]),
     createFields: Object.freeze([...definition.createFields]),
     updateFields: Object.freeze([...definition.updateFields])
   }) as Readonly<T>;
