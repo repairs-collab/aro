@@ -1,0 +1,3 @@
+import { publicFields, type AreaDefinition } from './types.js';
+
+export const users = { area: 'users', zone: 'users', identifier: 'userid', fields: publicFields(['userid', 'archived', 'createdutc', 'position', 'givennames', 'surname', 'username', 'password', 'accesstype', 'org.orgid', 'mobile']), filters: { archived: ['eq'], createdutc: ['gt'], position: ['eq'], userid: ['eq'] }, joins: ['customfields', 'permissiongroups', 'documentsandphotos', 'notes', 'trackingcentredefaults', 'featureaccess'], createFields: ['givennames', 'surname', 'username', 'password', 'accesstype', 'org.orgid'], updateFields: ['userid', 'mobile'] } as const satisfies AreaDefinition;
