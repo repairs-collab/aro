@@ -25,6 +25,8 @@ export const DOCUMENTED_RATE_LIMIT_CEILINGS: Readonly<RateLimits> = Object.freez
 });
 
 const sleepFor = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const normalizeLimit = (value: number, fallback: number, ceiling: number): number =>
+  Number.isFinite(value) ? Math.max(1, Math.min(Math.floor(value), ceiling)) : fallback;
 const sydneyDate = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Australia/Sydney',
   year: 'numeric',
@@ -48,9 +50,9 @@ export class RateLimiter {
     this.sleep = options.sleep ?? sleepFor;
     const configured = options.limits ?? DEFAULT_RATE_LIMITS;
     this.limits = {
-      second: Math.max(1, Math.min(Math.floor(configured.second), DOCUMENTED_RATE_LIMIT_CEILINGS.second)),
-      minute: Math.max(1, Math.min(Math.floor(configured.minute), DOCUMENTED_RATE_LIMIT_CEILINGS.minute)),
-      daily: Math.max(1, Math.min(Math.floor(configured.daily), DOCUMENTED_RATE_LIMIT_CEILINGS.daily))
+      second: normalizeLimit(configured.second, DEFAULT_RATE_LIMITS.second, DOCUMENTED_RATE_LIMIT_CEILINGS.second),
+      minute: normalizeLimit(configured.minute, DEFAULT_RATE_LIMITS.minute, DOCUMENTED_RATE_LIMIT_CEILINGS.minute),
+      daily: normalizeLimit(configured.daily, DEFAULT_RATE_LIMITS.daily, DOCUMENTED_RATE_LIMIT_CEILINGS.daily)
     };
   }
 

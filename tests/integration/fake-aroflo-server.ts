@@ -12,6 +12,8 @@ export interface QueuedResponse {
   headers?: Record<string, string>;
   body?: unknown;
   rawBody?: string;
+  chunks?: readonly string[];
+  stall?: boolean;
   delayMs?: number;
 }
 
@@ -41,7 +43,12 @@ export async function startFakeAroFloServer(): Promise<FakeAroFloServer> {
           'content-type': 'application/json',
           ...queued.headers
         });
-        response.end(queued.rawBody ?? JSON.stringify(queued.body ?? {}));
+        if (queued.chunks !== undefined) {
+          for (const chunk of queued.chunks) response.write(chunk);
+          if (queued.stall !== true) response.end();
+          return;
+        }
+        if (queued.stall !== true) response.end(queued.rawBody ?? JSON.stringify(queued.body ?? {}));
       };
       if (queued.delayMs === undefined) send();
       else setTimeout(send, queued.delayMs);

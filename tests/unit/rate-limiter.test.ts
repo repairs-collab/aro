@@ -98,4 +98,62 @@ describe('RateLimiter', () => {
 
     expect(delays).toEqual([1_000]);
   });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'normalizes non-finite per-second limit %s to the conservative default',
+    async (second) => {
+      let nowMs = Date.parse('2026-09-10T00:00:00.000Z');
+      const delays: number[] = [];
+      const limiter = new RateLimiter({
+        limits: { second, minute: 60, daily: 1_900 },
+        now: () => new Date(nowMs),
+        sleep: async (ms) => {
+          delays.push(ms);
+          nowMs += ms;
+        }
+      });
+
+      await limiter.acquire();
+      await limiter.acquire();
+
+      expect(delays).toEqual([1_000]);
+    }
+  );
+
+  it('normalizes a non-finite minute limit to sixty', async () => {
+    let nowMs = Date.parse('2026-09-10T00:00:00.000Z');
+    const delays: number[] = [];
+    const limiter = new RateLimiter({
+      limits: { second: 3, minute: Number.POSITIVE_INFINITY, daily: 1_900 },
+      now: () => new Date(nowMs),
+      sleep: async (ms) => {
+        delays.push(ms);
+        nowMs += ms;
+      }
+    });
+
+    for (let index = 0; index < 60; index += 1) {
+      await limiter.acquire();
+      if (index % 3 === 2) nowMs += 1_000;
+    }
+    await limiter.acquire();
+
+    expect(delays).toEqual([40_000]);
+  });
+
+  it('normalizes a non-finite daily limit to 1900', async () => {
+    let nowMs = Date.parse('2026-09-10T00:00:00.000Z');
+    const limiter = new RateLimiter({
+      limits: { second: 3, minute: 120, daily: Number.NaN },
+      now: () => new Date(nowMs),
+      sleep: async (ms) => {
+        nowMs += ms;
+      }
+    });
+
+    for (let index = 0; index < 1_900; index += 1) await limiter.acquire();
+
+    await expect(limiter.acquire()).rejects.toBeInstanceOf(RateBudgetExceededError);
+    expect(limiter.getDailyLimit()).toBe(1_900);
+  });
 });

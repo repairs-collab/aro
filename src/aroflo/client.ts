@@ -226,15 +226,22 @@ export class AroFloClient {
     try {
       response = await this.fetchImpl(url, init);
     } catch (caught) {
+      clearTimeout(timeout);
+      if (controller.signal.aborted) throw new ConnectorError('TIMEOUT', 'AroFlo request timed out', true);
+      throw caught;
+    }
+
+    let body: NormalizedBody;
+    try {
+      body = await this.readJson(response, !response.ok);
+    } catch (caught) {
       if (controller.signal.aborted) throw new ConnectorError('TIMEOUT', 'AroFlo request timed out', true);
       throw caught;
     } finally {
       clearTimeout(timeout);
     }
-
-    const body = await this.readJson(response, !response.ok);
-    if (!response.ok) throw this.httpError(response, body, postXml);
-    this.assertBodySuccess(body, postXml);
+    if (!response.ok) throw this.httpError(response, body, postXml, encoded);
+    this.assertBodySuccess(body, postXml, encoded, this.retryAfterMs(response));
 
     const records = recordsFrom(body.zoneresponse, area);
     if (records.length > MAX_RECORDS) {
@@ -289,17 +296,22 @@ export class AroFloClient {
     if (reader !== undefined) {
       const decoder = new TextDecoder();
       let bytes = 0;
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        bytes += chunk.value.byteLength;
-        if (bytes > MAX_RESPONSE_BYTES) {
-          await reader.cancel();
-          throw new ConnectorError('RESPONSE_TOO_LARGE', 'AroFlo response exceeded 3.5 MB');
+      try {
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          bytes += chunk.value.byteLength;
+          if (bytes > MAX_RESPONSE_BYTES) {
+            await reader.cancel();
+            throw new ConnectorError('RESPONSE_TOO_LARGE', 'AroFlo response exceeded 3.5 MB');
+          }
+          raw += decoder.decode(chunk.value, { stream: true });
         }
-        raw += decoder.decode(chunk.value, { stream: true });
+        raw += decoder.decode();
+      } catch (caught) {
+        await reader.cancel().catch(() => undefined);
+        throw caught;
       }
-      raw += decoder.decode();
     } else {
       raw = await response.text();
       if (Buffer.byteLength(raw, 'utf8') > MAX_RESPONSE_BYTES) {
@@ -317,7 +329,7 @@ export class AroFloClient {
     }
   }
 
-  private httpError(response: Response, body: NormalizedBody, postXml?: string): ConnectorError {
+  private httpError(response: Response, body: NormalizedBody, postXml: string | undefined, encoded: string): ConnectorError {
     const status = response.status;
     const code: ConnectorErrorCode = status === 401
       ? 'AUTHENTICATION'
@@ -331,11 +343,16 @@ export class AroFloClient {
               ? 'UPSTREAM'
               : 'VALIDATION';
     const retryable = status === 408 || status === 429 || status >= 500;
-    const message = this.safeStatusMessage(`AroFlo HTTP ${status}`, body, postXml);
+    const message = this.safeStatusMessage(`AroFlo HTTP ${status}`, body, postXml, encoded);
     return new HttpConnectorError(code, message, retryable, this.retryAfterMs(response));
   }
 
-  private assertBodySuccess(body: NormalizedBody, postXml?: string): void {
+  private assertBodySuccess(
+    body: NormalizedBody,
+    postXml: string | undefined,
+    encoded: string,
+    retryAfterMs: number | undefined
+  ): void {
     if (body.status === undefined) return;
     const status = String(body.status).trim().toUpperCase();
     if (['0', 'OK', 'SUCCESS', 'TRUE', '200'].includes(status)) return;
@@ -357,12 +374,13 @@ export class AroFloClient {
                   : ['UPSTREAM', false];
     throw new HttpConnectorError(
       classification[0],
-      this.safeStatusMessage('AroFlo body error', body, postXml),
-      classification[1]
+      this.safeStatusMessage('AroFlo body error', body, postXml, encoded),
+      classification[1],
+      retryAfterMs
     );
   }
 
-  private safeStatusMessage(prefix: string, body: NormalizedBody, postXml?: string): string {
+  private safeStatusMessage(prefix: string, body: NormalizedBody, postXml: string | undefined, encoded: string): string {
     const details = [body.statuscode, body.statusmessage]
       .filter((value): value is string | number => typeof value === 'string' || typeof value === 'number')
       .map(String)
@@ -373,7 +391,8 @@ export class AroFloClient {
       this.config.credentials.orgEncoded,
       this.config.credentials.secretKey,
       this.config.credentials.hostIp ?? '',
-      postXml ?? ''
+      postXml ?? '',
+      encoded
     ];
     const redacted = String(redact(details === '' ? prefix : `${prefix}: ${details}`, sensitive));
     return redacted

@@ -96,6 +96,29 @@ describe('AroFloClient wire contract', () => {
     ]);
   });
 
+  it.each([
+    ['tasks', 'taskid'],
+    ['clients', 'clientid'],
+    ['locations', 'locationid'],
+    ['quotes', 'quoteid'],
+    ['invoices', 'invoiceid'],
+    ['schedules', 'scheduleid'],
+    ['users', 'userid'],
+    ['assets', 'assetid'],
+    ['inventory', 'itemid']
+  ] as const)('gets one %s record using its canonical identifier %s', async (area, identifier) => {
+    const server = await fakeServer();
+    server.queue({
+      body: { status: '0', statusmessage: 'Login OK', zoneresponse: { [area]: [{ [identifier]: 'fake-id' }] } }
+    });
+    const client = new AroFloClient({ config, baseUrl: server.baseUrl, now: fixedNow });
+
+    await expect(client.get(area, 'fake-id')).resolves.toEqual({ [identifier]: 'fake-id' });
+    expect(server.requests[0]?.url).toBe(
+      `/?zone=${area}&where=and%7C${identifier}%7C%3D%7Cfake-id&page=1&pageSize=1`
+    );
+  });
+
   it('rejects pages above ten and responses above 500 records without sending or returning them', async () => {
     const server = await fakeServer();
     server.queue({ body: { status: 'OK', statusmessage: 'Too many', zoneresponse: { tasks: Array.from({ length: 501 }, (_, taskid) => ({ taskid })) } } });
@@ -188,6 +211,28 @@ describe('AroFloClient failures and retries', () => {
     expect(error.message).not.toMatch(/HMAC|uencoded|postxml|very-private|"private"/i);
   });
 
+  it('redacts an echoed exact encoded GET payload from a body error', async () => {
+    const server = await fakeServer();
+    const encoded = 'zone=tasks&where=and%7Cclientname%7C%3D%7CAcme%20Private&page=1&pageSize=50';
+    server.queue({
+      body: {
+        status: '99',
+        statusmessage: `Rejected request ${encoded}`,
+        zoneresponse: {}
+      }
+    });
+    const client = new AroFloClient({ config, baseUrl: server.baseUrl, now: fixedNow });
+
+    const error = await client.search({
+      area: 'tasks',
+      filters: [{ field: 'clientname', operator: 'eq', value: 'Acme Private' }]
+    }).catch((caught: unknown) => caught) as Error;
+
+    expect(error.message).toContain('AroFlo body error');
+    expect(error.message).not.toContain(encoded);
+    expect(error.message).not.toMatch(/Acme|clientname|where=|zone=tasks/i);
+  });
+
   it('classifies and retries an HTTP-200 AroFlo rate-limit status without caching failures', async () => {
     const server = await fakeServer();
     server.queue(
@@ -211,6 +256,34 @@ describe('AroFloClient failures and retries', () => {
     expect(server.requests).toHaveLength(5);
   });
 
+  it('honors Retry-After on an HTTP-200 body-level 429', async () => {
+    const server = await fakeServer();
+    server.queue(
+      {
+        headers: { 'retry-after': '2' },
+        body: { status: '429', statusmessage: 'Too Many Requests Per Second', zoneresponse: {} }
+      },
+      { body: await fixture('read-success.json') }
+    );
+    const delays: number[] = [];
+    const client = new AroFloClient({
+      config,
+      baseUrl: server.baseUrl,
+      now: fixedNow,
+      sleep: async (ms) => {
+        delays.push(ms);
+      },
+      random: () => 0,
+      rateLimits: { second: 3, minute: 120, daily: 1_900 }
+    });
+
+    await expect(client.search({ area: 'tasks', fresh: true })).resolves.toMatchObject({
+      records: [{ taskid: 'task-1' }]
+    });
+    expect(delays).toEqual([2_000]);
+    expect(server.requests).toHaveLength(2);
+  });
+
   it('rejects malformed JSON and oversized raw responses with stable codes', async () => {
     const server = await fakeServer();
     server.queue(
@@ -221,6 +294,39 @@ describe('AroFloClient failures and retries', () => {
 
     await expect(client.search({ area: 'tasks', fresh: true })).rejects.toMatchObject({ code: 'MALFORMED_RESPONSE' });
     await expect(client.search({ area: 'tasks', fresh: true })).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE' });
+  });
+
+  it('aborts when response headers arrive but the body stalls', async () => {
+    const server = await fakeServer();
+    server.queue(...Array.from({ length: 4 }, () => ({ chunks: ['{"status":"0",'], stall: true })));
+    const client = new AroFloClient({
+      config: { ...config, requestTimeoutMs: 10 },
+      baseUrl: server.baseUrl,
+      now: fixedNow,
+      sleep: async () => undefined,
+      random: () => 0,
+      rateLimits: { second: 3, minute: 120, daily: 1_900 }
+    });
+
+    const outcome = await Promise.race([
+      client.search({ area: 'tasks', fresh: true }).catch((caught: unknown) => caught),
+      new Promise<'hung'>((resolve) => setTimeout(() => resolve('hung'), 250))
+    ]);
+
+    expect(outcome).toMatchObject({ code: 'TIMEOUT', retryable: true });
+    expect(server.requests).toHaveLength(4);
+  });
+
+  it('rejects a chunked response over 3.5 MB without relying on Content-Length', async () => {
+    const server = await fakeServer();
+    server.queue({ chunks: ['{"padding":"', 'x'.repeat(3_500_000), '"}'] });
+    const client = new AroFloClient({ config, baseUrl: server.baseUrl, now: fixedNow });
+
+    await expect(client.search({ area: 'tasks', fresh: true })).rejects.toMatchObject({
+      code: 'RESPONSE_TOO_LARGE',
+      retryable: false
+    });
+    expect(server.requests).toHaveLength(1);
   });
 
   it('aborts a timed-out request and returns a retryable timeout after at most four attempts', async () => {
