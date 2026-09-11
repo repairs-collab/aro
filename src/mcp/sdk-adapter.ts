@@ -2,6 +2,7 @@ import { McpServer, type ToolAnnotations } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { ConnectorToolResult } from '../tools/result.js';
 import { createReadToolDefinitions, type ToolDependencies } from '../tools/read-tools.js';
+import { createWriteToolDefinitions } from '../tools/write-tools.js';
 
 export interface ConnectorToolDefinition { name: string; title: string; description: string; inputSchema: z.ZodType; annotations: ToolAnnotations; execute(input: unknown): Promise<ConnectorToolResult>; }
 
@@ -27,4 +28,8 @@ export function registerConnectorTool(server: McpServer, definition: ConnectorTo
 
 export function registerReadTools(server: McpServer, dependencies: ToolDependencies): void {
   for (const tool of createReadToolDefinitions(dependencies)) registerConnectorTool(server, tool);
+}
+
+export function registerWriteTools(server: McpServer, dependencies: ToolDependencies): void {
+  for (const tool of createWriteToolDefinitions(dependencies)) registerConnectorTool(server, tool);
 }
