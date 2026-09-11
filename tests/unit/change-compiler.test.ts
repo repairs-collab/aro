@@ -233,6 +233,21 @@ describe('AroFlo structured change compiler', () => {
     }).postXml).toContain('<startdatetime>2028/02/29 23:59:59</startdatetime>');
   });
 
+  it('accepts valid zero-padded years in each documented mutation date format', () => {
+    const task = changeCases.find(({ name }) => name === 'create task');
+    const schedule = changeCases.find(({ name }) => name === 'create schedule');
+    if (task === undefined || schedule === undefined) throw new Error('Missing date fixture');
+
+    expect(changeCompiler.compileChange({
+      ...task.input,
+      fields: { ...task.input.fields, duedate: '0001/01/01' }
+    }).postXml).toContain('<duedate>0001/01/01</duedate>');
+    expect(changeCompiler.compileChange({
+      ...schedule.input,
+      fields: { ...schedule.input.fields, startdatetime: '0004/02/29 00:00:00' }
+    }).postXml).toContain('<startdatetime>0004/02/29 00:00:00</startdatetime>');
+  });
+
   it('requires own structural properties and rejects polluted input prototypes', () => {
     const task = changeCases.find(({ name }) => name === 'update task');
     if (task?.input.id === undefined) throw new Error('Missing update task fixture');

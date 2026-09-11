@@ -232,4 +232,42 @@ describe('AroFlo area registry', () => {
 
     expect(() => defineArea(definition)).toThrow('Invalid AroFlo area definition');
   });
+
+  it.each([
+    'details.bad name',
+    'details.<bad>',
+    'details.bad:name',
+    'details.1bad',
+    'details.',
+    '.details'
+  ])('rejects an unsafe mutation apiName path before XML compilation: %s', (apiName) => {
+    const definition = {
+      area: 'tasks', zone: 'tasks', identifier: 'taskid',
+      fields: { taskid: { apiName: 'taskid', type: 'string' }, alpha: { apiName, type: 'string' } },
+      filters: {}, joins: [], orderFields: [], createFields: ['alpha'], updateFields: [],
+      mutationEnvelope: { root: 'tasks', record: 'task' }
+    } as unknown as AreaDefinition;
+
+    expect(() => defineArea(definition)).toThrow('Invalid AroFlo area definition');
+  });
+
+  it.each([
+    ['root', 'bad name'],
+    ['root', '<tasks>'],
+    ['root', 'tasks:unsafe'],
+    ['root', '1tasks'],
+    ['record', 'bad name'],
+    ['record', 'task>'],
+    ['record', 'task:unsafe'],
+    ['record', '1task']
+  ] as const)('rejects an unsafe mutation envelope %s element name: %s', (part, name) => {
+    const definition = {
+      area: 'tasks', zone: 'tasks', identifier: 'taskid',
+      fields: { taskid: { apiName: 'taskid', type: 'string' }, alpha: { apiName: 'alpha', type: 'string' } },
+      filters: {}, joins: [], orderFields: [], createFields: ['alpha'], updateFields: [],
+      mutationEnvelope: { root: part === 'root' ? name : 'tasks', record: part === 'record' ? name : 'task' }
+    } as unknown as AreaDefinition;
+
+    expect(() => defineArea(definition)).toThrow('Invalid AroFlo area definition');
+  });
 });

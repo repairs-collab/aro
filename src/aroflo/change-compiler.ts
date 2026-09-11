@@ -69,11 +69,11 @@ function isSupportedScalar(value: unknown, field: FieldDefinition): boolean {
 
 function isValidMutationDate(value: string, field: FieldDefinition): boolean {
   if (field.mutationFormat === 'YYYY/MM/DD') {
-    const match = /^(?<year>[1-9]\d{3})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01])$/.exec(value);
+    const match = /^(?<year>\d{4})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01])$/.exec(value);
     return match !== null && isCalendarDate(match.groups);
   }
   if (field.mutationFormat === 'YYYY/MM/DD HH:mm:ss') {
-    const match = /^(?<year>[1-9]\d{3})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01]) (?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d):(?<second>[0-5]\d)$/.exec(value);
+    const match = /^(?<year>\d{4})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01]) (?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d):(?<second>[0-5]\d)$/.exec(value);
     return match !== null && isCalendarDate(match.groups);
   }
   return false;
@@ -84,7 +84,9 @@ function isCalendarDate(groups: Record<string, string> | undefined): boolean {
   const year = Number(groups.year);
   const month = Number(groups.month);
   const day = Number(groups.day);
-  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year === 0) return false;
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 

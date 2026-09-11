@@ -79,7 +79,11 @@ export function defineArea<const T extends AreaDefinition>(definition: T): Reado
   if (
     !Object.hasOwn(definition.fields, definition.identifier) ||
     (hasWrites && definition.mutationEnvelope === null) ||
-    (!hasWrites && definition.mutationEnvelope !== null)
+    (!hasWrites && definition.mutationEnvelope !== null) ||
+    (definition.mutationEnvelope !== null && (
+      !isValidXmlElementName(definition.mutationEnvelope.root) ||
+      !isValidXmlElementName(definition.mutationEnvelope.record)
+    ))
   ) {
     invalidDefinition();
   }
@@ -129,6 +133,10 @@ export function defineArea<const T extends AreaDefinition>(definition: T): Reado
   }) as Readonly<T>;
 }
 
-function isValidMutationPath(path: string): boolean {
-  return path.split('.').every((segment) => segment.length > 0);
+function isValidMutationPath(path: unknown): boolean {
+  return typeof path === 'string' && path.split('.').every(isValidXmlElementName);
+}
+
+function isValidXmlElementName(name: unknown): boolean {
+  return typeof name === 'string' && /^[A-Za-z_][A-Za-z0-9_-]*$/.test(name);
 }
