@@ -8,6 +8,7 @@ import {
   getAreaDefinition,
   isFinancialArea
 } from '../../src/aroflo/area-registry.js';
+import { defineArea, type AreaDefinition } from '../../src/aroflo/areas/types.js';
 import { encodePairs } from '../../src/aroflo/query.js';
 
 const officialContracts = JSON.parse(
@@ -23,6 +24,7 @@ const officialContracts = JSON.parse(
     orderFields: string[];
     createFields: string[];
     updateFields: string[];
+    mutationEnvelope: { root: string; record: string } | null;
   }
 >;
 
@@ -46,6 +48,7 @@ describe('AroFlo area registry', () => {
       expect(contract.orderFields).toEqual(source.orderFields);
       expect(contract.createFields).toEqual(source.createFields);
       expect(contract.updateFields).toEqual(source.updateFields);
+      expect(contract.mutationEnvelope).toEqual(source.mutationEnvelope);
       expect(describeArea(area).fields).toEqual(source.fields);
 
       for (const field of Object.keys(contract.filters)) expect(contract.fields[field]).toBeDefined();
@@ -141,7 +144,10 @@ describe('AroFlo area registry', () => {
     const assetOrderCode = getAreaDefinition('assets').fields.ordercode;
 
     expect(userPassword).toMatchObject({ type: 'string', sensitive: true, requiredOnCreate: true, mutable: false });
-    expect(taskDueDate).toMatchObject({ type: 'date', mutable: true });
+    expect(taskDueDate).toMatchObject({ type: 'date', mutable: true, mutationFormat: 'YYYY/MM/DD' });
+    expect(getAreaDefinition('schedules').fields.startdatetime).toMatchObject({
+      type: 'datetime', mutationFormat: 'YYYY/MM/DD HH:mm:ss'
+    });
     expect(inventoryCost).toMatchObject({ type: 'number', requiredOnCreate: true, mutable: true });
     expect(assetOrderCode).toEqual({ apiName: 'ordercode', type: 'string', mutable: true });
     expect(getAreaDefinition('assets').createFields).not.toContain('ordercode');
@@ -173,6 +179,8 @@ describe('AroFlo area registry', () => {
     expect(Object.isFrozen(definition)).toBe(true);
     expect(Object.isFrozen(definition.fields)).toBe(true);
     expect(Object.isFrozen(definition.joins)).toBe(true);
+    expect(definition.mutationEnvelope).toEqual({ root: 'tasks', record: 'task' });
+    expect(Object.isFrozen(definition.mutationEnvelope)).toBe(true);
     const quoteDefinition = getAreaDefinition('quotes');
     expect(Object.isFrozen(quoteDefinition.orderFields)).toBe(true);
     expect(() => (quoteDefinition.orderFields as string[]).push('quoteid')).toThrow(TypeError);
@@ -194,5 +202,34 @@ describe('AroFlo area registry', () => {
     } finally {
       if (insertedThroughPrototype) Map.prototype.delete.call(mutableView, 'untrusted');
     }
+  });
+
+  it.each([
+    [
+      'duplicate mutation paths',
+      { alpha: { apiName: 'details.value', type: 'string' }, beta: { apiName: 'details.value', type: 'string' } },
+      ['alpha', 'beta'],
+      []
+    ],
+    [
+      'prefix-colliding mutation paths',
+      { alpha: { apiName: 'details', type: 'string' }, beta: { apiName: 'details.value', type: 'string' } },
+      ['alpha', 'beta'],
+      []
+    ],
+    [
+      'identifier collision',
+      { taskid: { apiName: 'taskid', type: 'string' }, alpha: { apiName: 'taskid', type: 'string' } },
+      [],
+      ['taskid', 'alpha']
+    ]
+  ] as const)('rejects %s before a mutation definition enters the registry', (_name, fields, createFields, updateFields) => {
+    const definition = {
+      area: 'tasks', zone: 'tasks', identifier: 'taskid',
+      fields, filters: {}, joins: [], orderFields: [], createFields, updateFields,
+      mutationEnvelope: { root: 'tasks', record: 'task' }
+    } as unknown as AreaDefinition;
+
+    expect(() => defineArea(definition)).toThrow('Invalid AroFlo area definition');
   });
 });

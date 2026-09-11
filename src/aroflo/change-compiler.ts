@@ -26,11 +26,6 @@ export interface CompiledChange {
   preview: ChangePreview;
 }
 
-interface MutationEnvelope {
-  root: string;
-  record: string;
-}
-
 interface ValidatedChange {
   definition: AreaDefinition;
   operation: ChangeOperation;
@@ -38,7 +33,6 @@ interface ValidatedChange {
   changedFields: readonly string[];
   values: Readonly<Record<string, unknown>>;
   preview: ChangePreview;
-  envelope: MutationEnvelope;
 }
 
 interface XmlElement {
@@ -52,19 +46,6 @@ const SENSITIVE_WARNING = 'Sensitive field values are redacted.';
 const REDACTED = '[REDACTED]';
 const FORBIDDEN_CONTROL_KEYS = new Set(['postxml', 'xml', 'zone', 'delete', 'archive']);
 
-// These root/record pairs are the fixed mutation envelopes in the supplied
-// official AroFlo collection. Field paths, zones, identifiers, and operation
-// permissions continue to come exclusively from AREA_DEFINITIONS.
-const MUTATION_ENVELOPES: Readonly<Partial<Record<Area, MutationEnvelope>>> = Object.freeze({
-  tasks: Object.freeze({ root: 'tasks', record: 'task' }),
-  clients: Object.freeze({ root: 'clients', record: 'client' }),
-  invoices: Object.freeze({ root: 'invoices', record: 'invoice' }),
-  schedules: Object.freeze({ root: 'schedules', record: 'schedule' }),
-  users: Object.freeze({ root: 'users', record: 'user' }),
-  assets: Object.freeze({ root: 'assets', record: 'asset' }),
-  inventory: Object.freeze({ root: 'items', record: 'item' })
-});
-
 function invalidChange(): never {
   throw new Error(INVALID_CHANGE_MESSAGE);
 }
@@ -73,10 +54,38 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+}
+
 function isSupportedScalar(value: unknown, field: FieldDefinition): boolean {
   if (field.type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (field.type === 'boolean') return typeof value === 'boolean';
+  if (field.type === 'date' || field.type === 'datetime') {
+    return typeof value === 'string' && isValidMutationDate(value, field);
+  }
   return typeof value === 'string';
+}
+
+function isValidMutationDate(value: string, field: FieldDefinition): boolean {
+  if (field.mutationFormat === 'YYYY/MM/DD') {
+    const match = /^(?<year>[1-9]\d{3})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01])$/.exec(value);
+    return match !== null && isCalendarDate(match.groups);
+  }
+  if (field.mutationFormat === 'YYYY/MM/DD HH:mm:ss') {
+    const match = /^(?<year>[1-9]\d{3})\/(?<month>0[1-9]|1[0-2])\/(?<day>0[1-9]|[12]\d|3[01]) (?<hour>[01]\d|2[0-3]):(?<minute>[0-5]\d):(?<second>[0-5]\d)$/.exec(value);
+    return match !== null && isCalendarDate(match.groups);
+  }
+  return false;
+}
+
+function isCalendarDate(groups: Record<string, string> | undefined): boolean {
+  if (groups === undefined) return false;
+  const year = Number(groups.year);
+  const month = Number(groups.month);
+  const day = Number(groups.day);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 function isBlankRequiredValue(value: unknown): boolean {
@@ -84,18 +93,23 @@ function isBlankRequiredValue(value: unknown): boolean {
 }
 
 function validateChange(input: ChangeInput): ValidatedChange {
-  if (!isRecord(input)) invalidChange();
+  if (
+    !isPlainRecord(input) ||
+    !Object.hasOwn(input, 'area') ||
+    !Object.hasOwn(input, 'operation') ||
+    !Object.hasOwn(input, 'fields')
+  ) invalidChange();
   if (input.operation !== 'create' && input.operation !== 'update') invalidChange();
   if (typeof input.area !== 'string') invalidChange();
 
   const definition = AREA_DEFINITIONS.get(input.area as Area);
-  const envelope = MUTATION_ENVELOPES[input.area as Area];
-  if (definition === undefined || envelope === undefined || !isRecord(input.fields)) invalidChange();
+  if (definition === undefined || definition.mutationEnvelope === null || !isPlainRecord(input.fields)) invalidChange();
 
   const declaredFields = input.operation === 'create' ? definition.createFields : definition.updateFields;
   if (declaredFields.length === 0) invalidChange();
-  if (input.operation === 'create' && input.id !== undefined) invalidChange();
+  if (input.operation === 'create' && Object.hasOwn(input, 'id')) invalidChange();
   if (input.operation === 'update') {
+    if (!Object.hasOwn(input, 'id')) invalidChange();
     const identifier = definition.fields[definition.identifier];
     if (
       identifier === undefined ||
@@ -166,7 +180,6 @@ function validateChange(input: ChangeInput): ValidatedChange {
     changedFields,
     values: Object.freeze(values),
     preview,
-    envelope
   };
 }
 
@@ -224,7 +237,9 @@ function compilePostXml(change: ValidatedChange): string {
     addElement(record, definition.apiName.split('.'), change.values[field]);
   }
 
-  return `<${change.envelope.root}><${change.envelope.record}>${serializeChildren(record)}</${change.envelope.record}></${change.envelope.root}>`;
+  const envelope = change.definition.mutationEnvelope;
+  if (envelope === null) invalidChange();
+  return `<${envelope.root}><${envelope.record}>${serializeChildren(record)}</${envelope.record}></${envelope.root}>`;
 }
 
 export function previewChange(input: ChangeInput): ChangePreview {

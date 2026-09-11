@@ -22,6 +22,29 @@ const changeCases = JSON.parse(
 
 const INVALID_MESSAGE = 'Invalid AroFlo change input';
 const PREVIEW_WARNING = 'Preview only; no request was sent to AroFlo.';
+const XML_TEXT = `A & B <C> "D" 'E'`;
+const ESCAPED_XML_TEXT = 'A &amp; B &lt;C&gt; &quot;D&quot; &apos;E&apos;';
+
+const operationFields = [
+  ['create task', 'taskname'],
+  ['update task', 'taskname'],
+  ['create client', 'clientname'],
+  ['update client', 'phone'],
+  ['update invoice', 'description'],
+  ['create schedule', 'note'],
+  ['create user', 'givennames'],
+  ['update user', 'mobile'],
+  ['create asset', 'assetname'],
+  ['update asset', 'location.locationid'],
+  ['create inventory item', 'partnumber'],
+  ['update inventory item', 'stocklevels.stocklevel.assignedtotype']
+] as const;
+
+const operationCases = operationFields.map(([name, scalarField]) => {
+  const fixture = changeCases.find((candidate) => candidate.name === name);
+  if (fixture === undefined) throw new Error(`Missing fixture: ${name}`);
+  return { ...fixture, scalarField };
+});
 
 describe('AroFlo structured change compiler', () => {
   it.each(changeCases)('compiles the documented $name envelope from registry-ordered fields', ({ input, postXml, changedFields }) => {
@@ -94,34 +117,38 @@ describe('AroFlo structured change compiler', () => {
     }
   );
 
-  it.each(changeCases)('rejects unsupported and empty fields for $name', ({ input }) => {
+  it.each(changeCases)('rejects an unsupported field for $name', ({ input }) => {
     expect(() => changeCompiler.compileChange({ ...input, fields: { totallyUnknown: 'value' } })).toThrow(INVALID_MESSAGE);
+  });
+
+  it.each(changeCases)('rejects an empty mutation for $name', ({ input }) => {
     expect(() => changeCompiler.compileChange({ ...input, fields: {} })).toThrow(INVALID_MESSAGE);
   });
 
-  it('rejects wrong scalar types without coercion', () => {
-    const invalid = [
-      { area: 'tasks', operation: 'update', id: 'task-1', fields: { taskname: 123 } },
-      { area: 'assets', operation: 'create', fields: { assetname: 'Pump', 'category.categoryid': 'cat-1', datecreated: false } },
-      {
-        area: 'schedules', operation: 'create', fields: {
-          'scheduletype.typeid': 'type-1', 'scheduletype.type': 'task', startdate: '2026/09/11',
-          'insertedby.userid': 'user-1', enddate: '2026/09/11', enddatetime: 9,
-          'scheduledto.scheduledtoid': 'user-2', 'scheduledto.scheduledtotype': 'user', startdatetime: '2026/09/11 07:00:00'
-        }
-      },
-      {
-        area: 'inventory', operation: 'create', fields: {
-          partnumber: 'ABC', description: 'Cable', costex: '10', sellsimple: 20, 'category.categoryid': 'cat-1'
-        }
-      },
-      {
-        area: 'inventory', operation: 'update', id: 'item-1',
-        fields: { 'stocklevels.stocklevel.movequantity': Number.NaN }
-      }
-    ] as const;
+  it.each(operationCases)('rejects the wrong scalar type for $name without coercion', ({ input, scalarField }) => {
+    expect(() => changeCompiler.compileChange({
+      ...input,
+      fields: { ...input.fields, [scalarField]: 123 }
+    })).toThrow(INVALID_MESSAGE);
+  });
 
-    for (const input of invalid) expect(() => changeCompiler.compileChange(input)).toThrow(INVALID_MESSAGE);
+  it.each(operationCases)('escapes all five XML-sensitive characters for $name', ({ input, scalarField }) => {
+    const compiled = changeCompiler.compileChange({
+      ...input,
+      fields: { ...input.fields, [scalarField]: XML_TEXT }
+    });
+
+    expect(compiled.postXml).toContain(ESCAPED_XML_TEXT);
+    expect(compiled.postXml).not.toContain(XML_TEXT);
+  });
+
+  it.each(operationCases)('rejects every forbidden control key for $name', ({ input }) => {
+    for (const key of ['postxml', 'xml', 'zone', 'delete', 'archive']) {
+      expect(() => changeCompiler.compileChange({
+        ...input,
+        fields: { ...input.fields, [key]: 'never-reflect-control-value' }
+      })).toThrow(INVALID_MESSAGE);
+    }
   });
 
   it('rejects read-only operations, unknown areas, unknown operations, and malformed field collections', () => {
@@ -140,7 +167,7 @@ describe('AroFlo structured change compiler', () => {
   });
 
   it.each(['postxml', 'xml', 'zone', 'delete', 'archive'])(
-    'rejects the forbidden control key %s without reflecting its value',
+    'does not reflect the forbidden control key %s value in its error',
     (key) => {
       const secret = 'never-reflect-control-value';
       const invalid = () => changeCompiler.compileChange({
@@ -152,14 +179,87 @@ describe('AroFlo structured change compiler', () => {
     }
   );
 
-  it('rejects API fields undeclared for the operation and identifier injection through fields', () => {
+  it('rejects API fields undeclared for the operation', () => {
     const cases = [
-      { area: 'tasks', operation: 'create', fields: { taskid: 'injected' } },
       { area: 'tasks', operation: 'update', id: 'task-1', fields: { jobnumber: 42 } },
       { area: 'clients', operation: 'update', id: 'client-1', fields: { email: 'private@example.test' } }
     ] as const;
 
     for (const input of cases) expect(() => changeCompiler.compileChange(input)).toThrow(INVALID_MESSAGE);
+  });
+
+  it.each(operationCases)('rejects an identifier supplied through fields for $name', ({ input }) => {
+    const identifier = AREA_DEFINITIONS.get(input.area)?.identifier;
+    if (identifier === undefined) throw new Error(`Missing identifier for ${input.area}`);
+    expect(() => changeCompiler.compileChange({
+      ...input,
+      fields: { ...input.fields, [identifier]: 'identifier-in-fields' }
+    })).toThrow(INVALID_MESSAGE);
+  });
+
+  it.each([
+    ['tasks', 'duedate', '2026-09-11'],
+    ['tasks', 'duedate', '2026/02/30'],
+    ['tasks', 'duedate', '0000/01/01'],
+    ['assets', 'datecreated', '2026/13/01'],
+    ['assets', 'datecreated', '2026/04/31'],
+    ['schedules', 'startdate', '2026-09-11'],
+    ['schedules', 'enddate', '2026/02/29'],
+    ['schedules', 'startdatetime', '2026/09/11T07:00:00'],
+    ['schedules', 'startdatetime', '2026/09/11 24:00:00'],
+    ['schedules', 'enddatetime', '2026/09/11 09:00:60']
+  ] as const)('rejects invalid documented mutation date format/calendar value for %s.%s', (area, field, value) => {
+    const fixture = changeCases.find(({ input }) => input.area === area && input.operation === 'create');
+    if (fixture === undefined) throw new Error('Missing create fixture');
+
+    expect(() => changeCompiler.compileChange({
+      ...fixture.input,
+      fields: { ...fixture.input.fields, [field]: value }
+    })).toThrow(INVALID_MESSAGE);
+  });
+
+  it('accepts leap-day values in each documented mutation date format', () => {
+    const task = changeCases.find(({ name }) => name === 'create task');
+    const schedule = changeCases.find(({ name }) => name === 'create schedule');
+    if (task === undefined || schedule === undefined) throw new Error('Missing date fixture');
+
+    expect(changeCompiler.compileChange({
+      ...task.input,
+      fields: { ...task.input.fields, duedate: '2028/02/29' }
+    }).postXml).toContain('<duedate>2028/02/29</duedate>');
+    expect(changeCompiler.compileChange({
+      ...schedule.input,
+      fields: { ...schedule.input.fields, startdatetime: '2028/02/29 23:59:59' }
+    }).postXml).toContain('<startdatetime>2028/02/29 23:59:59</startdatetime>');
+  });
+
+  it('requires own structural properties and rejects polluted input prototypes', () => {
+    const task = changeCases.find(({ name }) => name === 'update task');
+    if (task?.input.id === undefined) throw new Error('Missing update task fixture');
+
+    const inheritedArea = Object.assign(Object.create({ area: 'tasks' }), {
+      operation: 'update', id: task.input.id, fields: task.input.fields
+    });
+    const inheritedOperation = Object.assign(Object.create({ operation: 'update' }), {
+      area: 'tasks', id: task.input.id, fields: task.input.fields
+    });
+    const inheritedFields = Object.assign(Object.create({ fields: task.input.fields }), {
+      area: 'tasks', operation: 'update', id: task.input.id
+    });
+    const inheritedId = Object.assign(Object.create({ id: task.input.id }), {
+      area: 'tasks', operation: 'update', fields: task.input.fields
+    });
+    const pollutedFields = Object.assign(Object.create({ zone: 'users' }), task.input.fields);
+    const explicitUndefinedCreateId = {
+      area: 'clients', operation: 'create', id: undefined,
+      fields: { clientname: 'Client', firstname: 'Jane', surname: 'Doe' }
+    };
+
+    for (const input of [inheritedArea, inheritedOperation, inheritedFields, inheritedId]) {
+      expect(() => changeCompiler.compileChange(input)).toThrow(INVALID_MESSAGE);
+    }
+    expect(() => changeCompiler.compileChange({ ...task.input, fields: pollutedFields })).toThrow(INVALID_MESSAGE);
+    expect(() => changeCompiler.compileChange(explicitUndefinedCreateId as never)).toThrow(INVALID_MESSAGE);
   });
 
   it('never reflects sensitive values in validation errors', () => {

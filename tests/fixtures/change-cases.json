@@ -8,11 +8,12 @@
         "taskname": "Fix & <sink> \"soon\" 'please'",
         "tasktype.tasktypeid": "type-1",
         "client.clientid": "client-1",
-        "org.orgid": "org-1"
+        "org.orgid": "org-1",
+        "duedate": "2026/09/11"
       }
     },
-    "postXml": "<tasks><task><org><orgid>org-1</orgid></org><client><clientid>client-1</clientid></client><tasktype><tasktypeid>type-1</tasktypeid></tasktype><taskname>Fix &amp; &lt;sink&gt; &quot;soon&quot; &apos;please&apos;</taskname></task></tasks>",
-    "changedFields": ["org.orgid", "client.clientid", "tasktype.tasktypeid", "taskname"]
+    "postXml": "<tasks><task><org><orgid>org-1</orgid></org><client><clientid>client-1</clientid></client><tasktype><tasktypeid>type-1</tasktypeid></tasktype><taskname>Fix &amp; &lt;sink&gt; &quot;soon&quot; &apos;please&apos;</taskname><duedate>2026/09/11</duedate></task></tasks>",
+    "changedFields": ["org.orgid", "client.clientid", "tasktype.tasktypeid", "taskname", "duedate"]
   },
   {
     "name": "update task",
