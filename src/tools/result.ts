@@ -3,6 +3,8 @@ import { ConnectorError } from '../aroflo/errors.js';
 import { redact } from '../redaction.js';
 
 const MAX_MCP_RESULT_BYTES = 1_000_000;
+const MAX_OUTPUT_STRING_LENGTH = 8_192;
+const TRUNCATION_MARKER = '...[truncated]';
 
 export type ConnectorToolResult = CallToolResult & {
   content: Array<{ type: 'text'; text: string }>;
@@ -35,8 +37,34 @@ function jsonCompatible(value: Record<string, unknown>): Record<string, unknown>
   return serialized === undefined ? { result: null } : JSON.parse(serialized) as Record<string, unknown>;
 }
 
+function boundStrings(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
+  if (typeof value === 'string') {
+    return value.length <= MAX_OUTPUT_STRING_LENGTH
+      ? value
+      : `${value.slice(0, MAX_OUTPUT_STRING_LENGTH - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+  }
+  if (value === null || typeof value !== 'object') return value;
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    seen.set(value, output);
+    for (const item of value) output.push(boundStrings(item, seen));
+    return output;
+  }
+  const output: Record<string, unknown> = {};
+  seen.set(value, output);
+  for (const [key, item] of Object.entries(value)) {
+    const boundedKey = key.length <= MAX_OUTPUT_STRING_LENGTH
+      ? key
+      : `${key.slice(0, MAX_OUTPUT_STRING_LENGTH - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+    output[boundedKey] = boundStrings(item, seen);
+  }
+  return output;
+}
+
 export function asToolResult(value: unknown, sensitiveValues: readonly string[] = []): ConnectorToolResult {
-  const safeValue = recordValue(redact(recordValue(value), sensitiveValues));
+  const safeValue = recordValue(boundStrings(redact(recordValue(value), sensitiveValues)));
   const result: ConnectorToolResult = { content: [{ type: 'text', text: conciseText(safeValue) }], structuredContent: jsonCompatible(safeValue) };
   if (Buffer.byteLength(JSON.stringify(result), 'utf8') > MAX_MCP_RESULT_BYTES) throw new ConnectorError('RESPONSE_TOO_LARGE', 'MCP result exceeded its size limit');
   return result;

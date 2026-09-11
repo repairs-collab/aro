@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AroFloClient, AroFloPage } from '../../src/aroflo/client.js';
 import type { AppConfig } from '../../src/config.js';
 import { buildMcpServer } from '../../src/mcp/build-server.js';
+import { createConnectorServer, registerReadTools } from '../../src/mcp/sdk-adapter.js';
 import { READ_TOOL_NAMES } from '../../src/tools/read-tools.js';
 
 const config: AppConfig = {
@@ -36,8 +37,8 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
-async function connectedClient(arofloClient: ReturnType<typeof fakeClient>): Promise<Client> {
-  const server = buildMcpServer({ config, client: arofloClient as unknown as AroFloClient });
+async function connectedClient(arofloClient: ReturnType<typeof fakeClient>, identity?: { name: string; version: string }): Promise<Client> {
+  const server = buildMcpServer({ config, client: arofloClient as unknown as AroFloClient, ...identity });
   const client = new Client({ name: 'connector-test', version: '1.0.0' });
   clients.push(client);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -97,5 +98,28 @@ describe('MCP read tools', () => {
     expect(serialized).not.toContain('fake-secret');
     expect(serialized).not.toContain('fake-user');
     expect(serialized).not.toMatch(/private|client\.ts|stack/i);
+  });
+
+  it('publishes supplied bounded server identity through the SDK client', async () => {
+    const client = await connectedClient(fakeClient(), { name: 'aroflo-safe-test', version: '2.4.6' });
+
+    expect(client.getServerVersion()).toEqual({ name: 'aroflo-safe-test', version: '2.4.6' });
+  });
+
+  it('rejects empty or oversized server identity parts', () => {
+    expect(() => buildMcpServer({ config, client: fakeClient() as unknown as AroFloClient, name: '  ' })).toThrow('name');
+    expect(() => buildMcpServer({ config, client: fakeClient() as unknown as AroFloClient, version: 'v'.repeat(101) })).toThrow('version');
+  });
+
+  it('exports a registration helper that registers the same six tools', async () => {
+    const server = createConnectorServer();
+    registerReadTools(server, { config, client: fakeClient() as unknown as AroFloClient });
+    const client = new Client({ name: 'connector-test', version: '1.0.0' });
+    clients.push(client);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await client.connect(clientTransport);
+
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(READ_TOOL_NAMES);
   });
 });

@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/server';
-import { createConnectorServer, registerConnectorTool } from './sdk-adapter.js';
-import { createReadToolDefinitions, type ToolDependencies } from '../tools/read-tools.js';
+import { createConnectorServer, registerReadTools } from './sdk-adapter.js';
+import type { ToolDependencies } from '../tools/read-tools.js';
 
 export interface ConnectorServerOptions extends ToolDependencies { name?: string; version?: string; }
-export function buildMcpServer(options: ConnectorServerOptions): McpServer { const server = createConnectorServer(); for (const tool of createReadToolDefinitions(options)) registerConnectorTool(server, tool); return server; }
+export function buildMcpServer(options: ConnectorServerOptions): McpServer { const server = createConnectorServer(options); registerReadTools(server, options); return server; }
