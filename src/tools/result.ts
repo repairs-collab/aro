@@ -12,7 +12,10 @@ export type ConnectorToolResult = CallToolResult & {
 };
 
 function recordValue(value: unknown): Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : { result: value };
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  const output = Object.create(null) as Record<string, unknown>;
+  output.result = value;
+  return output;
 }
 
 function conciseText(value: Record<string, unknown>): string {
@@ -52,12 +55,15 @@ function boundStrings(value: unknown, seen = new WeakMap<object, unknown>()): un
     for (const item of value) output.push(boundStrings(item, seen));
     return output;
   }
-  const output: Record<string, unknown> = {};
+  const output = Object.create(null) as Record<string, unknown>;
   seen.set(value, output);
+  const boundedKeys = new Set<string>();
   for (const [key, item] of Object.entries(value)) {
     const boundedKey = key.length <= MAX_OUTPUT_STRING_LENGTH
       ? key
       : `${key.slice(0, MAX_OUTPUT_STRING_LENGTH - TRUNCATION_MARKER.length)}${TRUNCATION_MARKER}`;
+    if (boundedKeys.has(boundedKey)) throw new ConnectorError('RESPONSE_TOO_LARGE', 'MCP output key collision');
+    boundedKeys.add(boundedKey);
     output[boundedKey] = boundStrings(item, seen);
   }
   return output;

@@ -43,7 +43,7 @@ export function redact(value: unknown, sensitiveValues: readonly string[] = []):
       return output;
     }
 
-    const output: Record<string, unknown> = {};
+    const output = Object.create(null) as Record<string, unknown>;
     seen.set(current, output);
 
     if (current instanceof Error) {

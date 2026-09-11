@@ -72,4 +72,28 @@ describe('redact', () => {
       redact('<Request><Authentication>private-auth</Authentication><RecordId>JOB-42</RecordId><Status>Open</Status></Request>')
     ).toBe('<Request><Authentication>[REDACTED]</Authentication><RecordId>JOB-42</RecordId><Status>Open</Status></Request>');
   });
+
+  it('preserves JSON-parsed own __proto__ data in null-prototype output records', () => {
+    const source = JSON.parse('{"nested":{"__proto__":{"token":"kept"}}}') as Record<string, unknown>;
+    const result = redact(source) as Record<string, unknown>;
+    const nested = result.nested as Record<string, unknown>;
+
+    expect(Object.getPrototypeOf(result)).toBeNull();
+    expect(Object.getPrototypeOf(nested)).toBeNull();
+    expect(Object.hasOwn(nested, '__proto__')).toBe(true);
+    expect(nested.__proto__).toEqual({ token: 'kept' });
+    expect(nested.token).toBeUndefined();
+  });
+
+  it('copies only own enumerable data from prototype-bearing nested inputs', () => {
+    const inherited = { inherited: 'must not be copied' };
+    const nested = Object.create(inherited) as Record<string, unknown>;
+    nested.own = 'kept';
+
+    const result = redact({ nested }) as { nested: Record<string, unknown> };
+
+    expect(Object.getPrototypeOf(result.nested)).toBeNull();
+    expect(result.nested).toEqual({ own: 'kept' });
+    expect(Object.hasOwn(result.nested, 'inherited')).toBe(false);
+  });
 });
