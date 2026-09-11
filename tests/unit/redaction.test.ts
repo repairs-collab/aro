@@ -96,4 +96,28 @@ describe('redact', () => {
     expect(result.nested).toEqual({ own: 'kept' });
     expect(Object.hasOwn(result.nested, 'inherited')).toBe(false);
   });
+
+  it('copies only own sparse-array indexes, preserves holes, and keeps cycles', () => {
+    const prototype = Object.create(Array.prototype) as unknown[];
+    Object.defineProperty(prototype, '1', { value: 'inherited-secret', enumerable: true });
+    const input: unknown[] = ['own', , 'fake-secret'];
+    Object.setPrototypeOf(input, prototype);
+
+    const result = redact(input, ['fake-secret', 'inherited-secret']) as unknown[];
+
+    expect(result).toHaveLength(3);
+    expect(Object.hasOwn(result, 0)).toBe(true);
+    expect(Object.hasOwn(result, 1)).toBe(false);
+    expect(result[1]).toBeUndefined();
+    expect(result[2]).toBe('[REDACTED]');
+    expect(JSON.stringify(result)).toBe('["own",null,"[REDACTED]"]');
+
+    const cyclic: unknown[] = [];
+    cyclic.length = 3;
+    cyclic[2] = cyclic;
+    const copiedCycle = redact(cyclic) as unknown[];
+    expect(copiedCycle).toHaveLength(3);
+    expect(Object.hasOwn(copiedCycle, 0)).toBe(false);
+    expect(copiedCycle[2]).toBe(copiedCycle);
+  });
 });

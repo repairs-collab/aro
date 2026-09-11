@@ -37,9 +37,11 @@ export function redact(value: unknown, sensitiveValues: readonly string[] = []):
     if (existing !== undefined) return existing;
 
     if (Array.isArray(current)) {
-      const output: unknown[] = [];
+      const output = new Array<unknown>(current.length);
       seen.set(current, output);
-      for (const item of current) output.push(visit(item));
+      for (let index = 0; index < current.length; index += 1) {
+        if (Object.hasOwn(current, index)) output[index] = visit(current[index]);
+      }
       return output;
     }
 

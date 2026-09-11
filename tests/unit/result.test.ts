@@ -26,4 +26,26 @@ describe('tool result serialization', () => {
       structuredContent: { error: expect.objectContaining({ code: 'RESPONSE_TOO_LARGE', message: 'AroFlo tool failed.' }) }
     }));
   });
+
+  it('bounds own sparse-array values without serializing inherited numeric data', () => {
+    const prototype = Object.create(Array.prototype) as unknown[];
+    Object.defineProperty(prototype, '1', { value: 'inherited-secret', enumerable: true });
+    const source: unknown[] = ['x'.repeat(9_000), , 'fake-secret'];
+    Object.setPrototypeOf(source, prototype);
+
+    const result = asToolResult({ records: source }, ['fake-secret', 'inherited-secret']);
+    const records = result.structuredContent.records as unknown[];
+    const serialized = JSON.stringify(result.structuredContent);
+
+    expect(records).toHaveLength(3);
+    expect(Object.hasOwn(records, 0)).toBe(true);
+    expect(Object.hasOwn(records, 1)).toBe(true);
+    expect(records[1]).toBeNull();
+    expect(records[0]).toMatch(/\.\.\.\[truncated\]$/);
+    expect((records[0] as string).length).toBe(8_192);
+    expect(records[2]).toBe('[REDACTED]');
+    expect(serialized).not.toContain('inherited-secret');
+    expect(serialized).not.toContain('fake-secret');
+    expect(JSON.stringify(records)).toContain('null');
+  });
 });

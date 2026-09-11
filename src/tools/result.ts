@@ -50,9 +50,11 @@ function boundStrings(value: unknown, seen = new WeakMap<object, unknown>()): un
   const existing = seen.get(value);
   if (existing !== undefined) return existing;
   if (Array.isArray(value)) {
-    const output: unknown[] = [];
+    const output = new Array<unknown>(value.length);
     seen.set(value, output);
-    for (const item of value) output.push(boundStrings(item, seen));
+    for (let index = 0; index < value.length; index += 1) {
+      if (Object.hasOwn(value, index)) output[index] = boundStrings(value[index], seen);
+    }
     return output;
   }
   const output = Object.create(null) as Record<string, unknown>;
