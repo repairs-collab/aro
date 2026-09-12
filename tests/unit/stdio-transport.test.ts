@@ -79,6 +79,70 @@ describe('runStdio transport shutdown', () => {
     expect(stderr.mock.calls.flat().join('')).not.toContain('transport-fake-secret');
   });
 
+  it('closes once when the SDK reports an error before returning its handle', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stdioMock.serveStdio.mockImplementationOnce((_factory, options: { onerror?: (error: Error) => void }) => {
+      options.onerror?.(new Error('synchronous transport-fake-secret callback failure'));
+      return { close: stdioMock.close };
+    });
+
+    await expect(settlesWithin(runStdio(dependencies))).resolves.toBe(true);
+
+    expect(stdioMock.close).toHaveBeenCalledTimes(1);
+    expect(stderr.mock.calls.flat().join('')).toContain('[REDACTED]');
+    expect(stderr.mock.calls.flat().join('')).not.toContain('transport-fake-secret');
+  });
+
+  it.each(['SIGINT', 'SIGTERM'] as const)('closes once and cleans listeners when an error races with %s', async (signal) => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const sigintListeners = process.listenerCount('SIGINT');
+    const sigtermListeners = process.listenerCount('SIGTERM');
+    const inputEndListeners = process.stdin.listenerCount('end');
+    const running = runStdio(dependencies);
+
+    stdioMock.onerror?.(new Error(`transport-fake-secret error racing with ${signal}`));
+    process.emit(signal);
+
+    await expect(settlesWithin(running)).resolves.toBe(true);
+
+    expect(stdioMock.close).toHaveBeenCalledTimes(1);
+    expect(process.listenerCount('SIGINT')).toBe(sigintListeners);
+    expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners);
+    expect(process.stdin.listenerCount('end')).toBe(inputEndListeners);
+    expect(stderr.mock.calls.flat().join('')).not.toContain('transport-fake-secret');
+  });
+
+  it('resolves and cleans listeners when close rejects without an unhandled rejection', async () => {
+    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const sigintListeners = process.listenerCount('SIGINT');
+    const sigtermListeners = process.listenerCount('SIGTERM');
+    const inputEndListeners = process.stdin.listenerCount('end');
+    const unhandledRejections: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown) => unhandledRejections.push(reason);
+    process.on('unhandledRejection', onUnhandledRejection);
+    stdioMock.close.mockRejectedValueOnce(new Error('shutdown failed with transport-fake-secret'));
+
+    try {
+      const running = runStdio(dependencies);
+      stdioMock.onerror?.(new Error('transport-fake-secret failure'));
+
+      await expect(settlesWithin(running)).resolves.toBe(true);
+      await new Promise<void>((resolve) => setImmediate(resolve));
+
+      expect(stdioMock.close).toHaveBeenCalledTimes(1);
+      expect(unhandledRejections).toEqual([]);
+      const diagnostics = stderr.mock.calls.flat().join('');
+      expect(diagnostics).toContain('AroFlo connector shutdown error:');
+      expect(diagnostics).toContain('[REDACTED]');
+      expect(diagnostics).not.toContain('transport-fake-secret');
+      expect(process.listenerCount('SIGINT')).toBe(sigintListeners);
+      expect(process.listenerCount('SIGTERM')).toBe(sigtermListeners);
+      expect(process.stdin.listenerCount('end')).toBe(inputEndListeners);
+    } finally {
+      process.off('unhandledRejection', onUnhandledRejection);
+    }
+  });
+
   it('rejects synchronous startup failures without retaining process listeners', async () => {
     const sigintListeners = process.listenerCount('SIGINT');
     const sigtermListeners = process.listenerCount('SIGTERM');
