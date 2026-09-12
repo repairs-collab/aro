@@ -15,6 +15,8 @@ function config(writableAreas: readonly Area[] = ['tasks']): AppConfig {
     writeEnabled: true,
     writableAreas: new Set(writableAreas),
     financialWritesEnabled: false,
+    bindHost: '127.0.0.1',
+    allowedHosts: new Set(['localhost', '127.0.0.1', '[::1]']),
     port: 3000,
     requestTimeoutMs: 100
   };

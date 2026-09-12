@@ -23,6 +23,8 @@ function config(options: {
     writeEnabled: options.writeEnabled ?? false,
     writableAreas: new Set(options.writableAreas ?? []),
     financialWritesEnabled: options.financialWritesEnabled ?? false,
+    bindHost: '127.0.0.1',
+    allowedHosts: new Set(['localhost', '127.0.0.1', '[::1]']),
     port: 3000,
     requestTimeoutMs: 100
   };

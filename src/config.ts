@@ -29,6 +29,8 @@ export interface AppConfig {
   writableAreas: ReadonlySet<Area>;
   financialWritesEnabled: boolean;
   mcpAccessToken?: string;
+  bindHost: string;
+  allowedHosts: ReadonlySet<string>;
   port: number;
   requestTimeoutMs: number;
 }
@@ -41,6 +43,8 @@ const CREDENTIAL_VARIABLES = [
 ] as const;
 
 const areaNames = new Set<string>(AREAS);
+const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+const LOOPBACK_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'] as const;
 
 const requiredSecret = (name: (typeof CREDENTIAL_VARIABLES)[number]) =>
   z.string({ error: `${name} is required` }).trim().min(1, `${name} is required`);
@@ -51,6 +55,25 @@ const optionalNonBlankString = z.preprocess(
 );
 
 const exactBoolean = z.unknown().transform((value) => value === 'true');
+
+const bindHost = z.string().trim().min(1, 'MCP_BIND_HOST must not be blank').default('127.0.0.1')
+  .transform((value) => value.toLowerCase() === '[::1]' ? '::1' : value.toLowerCase())
+  .refine(
+    (value) => /^[a-z0-9.-]+$/.test(value) || /^[0-9a-f:]+$/.test(value),
+    'MCP_BIND_HOST must be a hostname or IP address without a scheme, path, or port'
+  );
+
+const allowedHosts = z.string().default('').transform((value, context) => {
+  const hosts = [...new Set(value.split(',').map((host) => host.trim().toLowerCase()).filter(Boolean))];
+  const invalid = hosts.some((host) =>
+    !(/^[a-z0-9.-]+$/.test(host) || /^\[[0-9a-f:]+\]$/.test(host))
+  );
+  if (invalid) {
+    context.addIssue({ code: 'custom', message: 'MCP_ALLOWED_HOSTS must contain hostnames without schemes, paths, or ports' });
+    return z.NEVER;
+  }
+  return hosts;
+});
 
 const envSchema = z
   .object({
@@ -80,6 +103,8 @@ const envSchema = z
     AROFLO_FINANCIAL_WRITES_ENABLED: exactBoolean,
     MCP_TRANSPORT: z.enum(['stdio', 'http']).default('stdio'),
     MCP_ACCESS_TOKEN: optionalNonBlankString,
+    MCP_BIND_HOST: bindHost,
+    MCP_ALLOWED_HOSTS: allowedHosts,
     PORT: z.preprocess(
       (value) => (value === undefined ? 3000 : Number(value)),
       z.number().int().min(1, 'PORT must be between 1 and 65535').max(65_535, 'PORT must be between 1 and 65535')
@@ -92,6 +117,11 @@ const envSchema = z
   .refine((config) => config.MCP_TRANSPORT !== 'http' || config.MCP_ACCESS_TOKEN !== undefined, {
     message: 'MCP_ACCESS_TOKEN is required when MCP_TRANSPORT is http',
     path: ['MCP_ACCESS_TOKEN']
+  })
+  .refine((config) => config.MCP_TRANSPORT !== 'http' ||
+    LOOPBACK_BIND_HOSTS.has(config.MCP_BIND_HOST) || config.MCP_ALLOWED_HOSTS.length > 0, {
+    message: 'MCP_ALLOWED_HOSTS is required when MCP_BIND_HOST is outside loopback',
+    path: ['MCP_ALLOWED_HOSTS']
   });
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
@@ -125,6 +155,10 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     writableAreas: new Set(parsed.AROFLO_WRITABLE_AREAS),
     financialWritesEnabled: parsed.AROFLO_FINANCIAL_WRITES_ENABLED,
     ...(parsed.MCP_ACCESS_TOKEN === undefined ? {} : { mcpAccessToken: parsed.MCP_ACCESS_TOKEN }),
+    bindHost: parsed.MCP_BIND_HOST,
+    allowedHosts: new Set(
+      LOOPBACK_BIND_HOSTS.has(parsed.MCP_BIND_HOST) ? LOOPBACK_ALLOWED_HOSTS : parsed.MCP_ALLOWED_HOSTS
+    ),
     port: parsed.PORT,
     requestTimeoutMs: parsed.AROFLO_REQUEST_TIMEOUT_MS
   };
