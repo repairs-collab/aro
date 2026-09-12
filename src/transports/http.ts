@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { AroFloClient } from '../aroflo/client.js';
-import { loadConfig, normalizeRequestHost, type AppConfig } from '../config.js';
+import { loadConfig, normalizeConfiguredBindHost, normalizeRequestHost, type AppConfig } from '../config.js';
 import { buildMcpServer } from '../mcp/build-server.js';
 import { redact } from '../redaction.js';
 
@@ -174,7 +174,11 @@ export function createHttpServer(config: AppConfig): Server {
   if (config.transport !== 'http' || expectedToken === undefined || expectedToken.length === 0) {
     throw new Error('Hosted MCP requires HTTP transport and MCP_ACCESS_TOKEN');
   }
-  const loopback = LOOPBACK_BIND_HOSTS.has(config.bindHost);
+  const normalizedBindHost = normalizeConfiguredBindHost(config.bindHost);
+  if (normalizedBindHost === undefined) {
+    throw new Error('MCP_BIND_HOST must be a hostname or IP address without a scheme, path, or port');
+  }
+  const loopback = LOOPBACK_BIND_HOSTS.has(normalizedBindHost);
   if (!loopback && config.allowedHosts.size === 0) {
     throw new Error('MCP_ALLOWED_HOSTS is required when MCP_BIND_HOST is outside loopback');
   }

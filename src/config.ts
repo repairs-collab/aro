@@ -149,7 +149,7 @@ function normalizeConfiguredHost(value: string): string | undefined {
   return canonicalizeHost(value, { allowPort: false, allowBareIpv6: true, trim: true })?.hostname;
 }
 
-function normalizeConfiguredBindHost(value: string): string | undefined {
+export function normalizeConfiguredBindHost(value: string): string | undefined {
   const hostname = normalizeConfiguredHost(value);
   return hostname?.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
 }

@@ -263,6 +263,33 @@ describe('hosted HTTP transport', () => {
     expect(mcpDispatches).not.toHaveBeenCalled();
   });
 
+  it.each(['127.1', '0x7f000001', 'localhost.'])
+  ('enforces the loopback Host allowlist for direct bind alias %s', async (bindHost) => {
+    const config: AppConfig = {
+      ...loadConfig(baseEnvironment),
+      bindHost,
+      allowedHosts: new Set(['attacker.example'])
+    };
+    const { port } = await listen(config);
+
+    const loopback = await send(port, '/healthz', { headers: { host: `127.0.0.1:${port}` } });
+    const attacker = await send(port, '/healthz', { headers: { host: `attacker.example:${port}` } });
+
+    expect(loopback.status).toBe(200);
+    expect(attacker.status).toBe(403);
+    expect(mcpDispatches).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for an invalid direct AppConfig bind host', () => {
+    const config: AppConfig = {
+      ...loadConfig(baseEnvironment),
+      bindHost: 'https://attacker.example',
+      allowedHosts: new Set(['attacker.example'])
+    };
+
+    expect(() => createHttpServer(config)).toThrow(/MCP_BIND_HOST/);
+  });
+
   it('rejects a Host outside the public-bind allowlist before authentication', async () => {
     const config = loadConfig({
       ...baseEnvironment,
