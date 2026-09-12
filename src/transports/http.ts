@@ -14,6 +14,7 @@ const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const REJECTION_CLOSE_DEADLINE_MS = 250;
 const SHUTDOWN_DEADLINE_MS = 5_000;
 const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+const LOOPBACK_ALLOWED_HOSTS: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]']);
 const SECRET_ENVIRONMENT_KEYS = [
   'AROFLO_UENCODED',
   'AROFLO_PENCODED',
@@ -65,7 +66,7 @@ function declaredBodyLength(request: IncomingMessage): number | undefined {
   return Number(raw);
 }
 
-function closeRejectedRequest(
+function closeResponseAfterFlush(
   request: IncomingMessage,
   response: ServerResponse,
   status: number,
@@ -104,7 +105,7 @@ function closeRejectedRequest(
 }
 
 function rejectOversize(request: IncomingMessage, response: ServerResponse): void {
-  closeRejectedRequest(request, response, 413, { error: 'Request body too large' });
+  closeResponseAfterFlush(request, response, 413, { error: 'Request body too large' });
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<BodyReadResult> {
@@ -177,6 +178,7 @@ export function createHttpServer(config: AppConfig): Server {
   if (!loopback && config.allowedHosts.size === 0) {
     throw new Error('MCP_ALLOWED_HOSTS is required when MCP_BIND_HOST is outside loopback');
   }
+  const effectiveAllowedHosts = loopback ? LOOPBACK_ALLOWED_HOSTS : config.allowedHosts;
 
   const dependencies = { config, client: new AroFloClient({ config }) };
   const mcp = createMcpHandler(() => buildMcpServer(dependencies), {
@@ -187,14 +189,14 @@ export function createHttpServer(config: AppConfig): Server {
   const server = createServer((request, response) => {
     void (async () => {
       const hostname = requestHost(request);
-      if (hostname === undefined || !config.allowedHosts.has(hostname)) {
-        closeRejectedRequest(request, response, 403, { error: 'Forbidden' });
+      if (hostname === undefined || !effectiveAllowedHosts.has(hostname)) {
+        closeResponseAfterFlush(request, response, 403, { error: 'Forbidden' });
         return;
       }
 
       const length = declaredBodyLength(request);
       if (Number.isNaN(length)) {
-        closeRejectedRequest(request, response, 400, { error: 'Invalid Content-Length' });
+        closeResponseAfterFlush(request, response, 400, { error: 'Invalid Content-Length' });
         return;
       }
       if (length !== undefined && length > MAX_REQUEST_BODY_BYTES) {
@@ -204,16 +206,15 @@ export function createHttpServer(config: AppConfig): Server {
 
       const path = requestPath(request);
       if (request.method === 'GET' && path === '/healthz') {
-        request.resume();
-        jsonResponse(response, 200, { status: 'ok', version: CONNECTOR_VERSION });
+        closeResponseAfterFlush(request, response, 200, { status: 'ok', version: CONNECTOR_VERSION });
         return;
       }
       if (path !== '/mcp') {
-        closeRejectedRequest(request, response, 404, { error: 'Not found' });
+        closeResponseAfterFlush(request, response, 404, { error: 'Not found' });
         return;
       }
       if (!bearerMatches(request.headers.authorization, expectedToken)) {
-        closeRejectedRequest(request, response, 401, { error: 'Unauthorized' }, { 'www-authenticate': 'Bearer' });
+        closeResponseAfterFlush(request, response, 401, { error: 'Unauthorized' }, { 'www-authenticate': 'Bearer' });
         return;
       }
 
@@ -225,7 +226,7 @@ export function createHttpServer(config: AppConfig): Server {
           return;
         }
         if (result.kind === 'invalid') {
-          closeRejectedRequest(request, response, 400, { error: 'Invalid JSON' });
+          closeResponseAfterFlush(request, response, 400, { error: 'Invalid JSON' });
           return;
         }
         if (result.kind === 'aborted') return;

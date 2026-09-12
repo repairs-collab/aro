@@ -245,6 +245,24 @@ describe('hosted HTTP transport', () => {
     expect(response.status).toBe(200);
   });
 
+  it('enforces the loopback Host allowlist for a direct AppConfig input', async () => {
+    const config: AppConfig = {
+      ...loadConfig(baseEnvironment),
+      bindHost: '127.0.0.1',
+      allowedHosts: new Set(['attacker.example'])
+    };
+    const { port } = await listen(config);
+
+    for (const host of ['LOCALHOST.', '0x7f000001', '[0:0:0:0:0:0:0:1]']) {
+      const response = await send(port, '/healthz', { headers: { host: `${host}:${port}` } });
+      expect(response.status).toBe(200);
+    }
+
+    const attacker = await send(port, '/healthz', { headers: { host: `attacker.example:${port}` } });
+    expect(attacker.status).toBe(403);
+    expect(mcpDispatches).not.toHaveBeenCalled();
+  });
+
   it('rejects a Host outside the public-bind allowlist before authentication', async () => {
     const config = loadConfig({
       ...baseEnvironment,
@@ -356,6 +374,21 @@ describe('hosted HTTP transport', () => {
     expect(result.response).toMatch(new RegExp(`^HTTP/1\\.1 ${expectedStatus} `));
     expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
     expect(result.response).not.toContain('fake-access-token');
+  });
+
+  it('returns the minimal health body and closes an unterminated chunked health request', async () => {
+    const { port } = await listen(loadConfig(baseEnvironment));
+    const result = await sendRawAndWaitForClose(
+      port,
+      `GET /healthz HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n1\r\n{\r\n`
+    );
+
+    expect(result.elapsedMs).toBeLessThan(1_500);
+    expect(result.response).toMatch(/^HTTP\/1\.1 200 /);
+    expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
+    expect(result.response).toContain('{"status":"ok","version":"0.1.0"}');
+    expect(result.response).not.toContain('fake-access-token');
+    expect(mcpDispatches).not.toHaveBeenCalled();
   });
 
   it('rejects a declared body above 1 MiB before MCP handling', async () => {
