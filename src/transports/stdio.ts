@@ -57,14 +57,11 @@ export async function runStdio(dependencies?: ToolDependencies): Promise<void> {
     client: new AroFloClient({ config })
   };
   const sensitiveValues = configSensitiveValues(config);
-  let handle: StdioServerHandle;
 
-  handle = serveStdio(() => buildMcpServer(resolvedDependencies), {
-    onerror: (error) => writeDiagnostic('AroFlo connector transport error', error, sensitiveValues)
-  });
-
-  await new Promise<void>((resolveClosed) => {
-    let closing = false;
+  await new Promise<void>((resolveClosed, rejectClosed) => {
+    let handle: StdioServerHandle | undefined;
+    let closePending = false;
+    let closeStarted = false;
 
     const cleanup = () => {
       process.off('SIGINT', onSignal);
@@ -72,8 +69,12 @@ export async function runStdio(dependencies?: ToolDependencies): Promise<void> {
       process.stdin.off('end', onInputEnd);
     };
     const close = () => {
-      if (closing) return;
-      closing = true;
+      if (closeStarted) return;
+      if (handle === undefined) {
+        closePending = true;
+        return;
+      }
+      closeStarted = true;
       void handle.close()
         .catch((error: unknown) => writeDiagnostic('AroFlo connector shutdown error', error, sensitiveValues))
         .finally(() => {
@@ -90,6 +91,18 @@ export async function runStdio(dependencies?: ToolDependencies): Promise<void> {
     process.once('SIGINT', onSignal);
     process.once('SIGTERM', onSignal);
     process.stdin.once('end', onInputEnd);
+    try {
+      handle = serveStdio(() => buildMcpServer(resolvedDependencies), {
+        onerror: (error) => {
+          writeDiagnostic('AroFlo connector transport error', error, sensitiveValues);
+          close();
+        }
+      });
+      if (closePending) close();
+    } catch (error) {
+      cleanup();
+      rejectClosed(error);
+    }
   });
 }
 
