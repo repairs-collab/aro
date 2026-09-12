@@ -1,3 +1,4 @@
+import { isIPv4, isIPv6 } from 'node:net';
 import { z } from 'zod';
 
 export const AREAS = [
@@ -45,6 +46,18 @@ const CREDENTIAL_VARIABLES = [
 const areaNames = new Set<string>(AREAS);
 const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 const LOOPBACK_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'] as const;
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+interface CanonicalHost {
+  hostname: string;
+  port?: number;
+}
+
+interface HostNormalizationOptions {
+  allowPort: boolean;
+  allowBareIpv6: boolean;
+  trim: boolean;
+}
 
 const requiredSecret = (name: (typeof CREDENTIAL_VARIABLES)[number]) =>
   z.string({ error: `${name} is required` }).trim().min(1, `${name} is required`);
@@ -56,21 +69,121 @@ const optionalNonBlankString = z.preprocess(
 
 const exactBoolean = z.unknown().transform((value) => value === 'true');
 
+function validPort(value: string): number | undefined {
+  if (!/^\d+$/.test(value)) return undefined;
+  const port = Number(value);
+  return Number.isSafeInteger(port) && port >= 0 && port <= 65_535 ? port : undefined;
+}
+
+function normalizedDnsHost(hostname: string): string | undefined {
+  const withoutTrailingDot = hostname.endsWith('.') ? hostname.slice(0, -1) : hostname;
+  if (withoutTrailingDot.length === 0 || withoutTrailingDot.length > 253) return undefined;
+  const labels = withoutTrailingDot.split('.');
+  return labels.every((label) => DNS_LABEL.test(label)) ? withoutTrailingDot : undefined;
+}
+
+function canonicalizeHost(value: string, options: HostNormalizationOptions): CanonicalHost | undefined {
+  const input = options.trim ? value.trim() : value;
+  if (input.length === 0 || /[\s\\/?#@]/.test(input)) return undefined;
+
+  let authority = input;
+  let port: number | undefined;
+
+  if (input.startsWith('[')) {
+    const closingBracket = input.indexOf(']');
+    if (closingBracket <= 1 || input.indexOf(']', closingBracket + 1) !== -1) return undefined;
+
+    const address = input.slice(1, closingBracket);
+    const suffix = input.slice(closingBracket + 1);
+    if (suffix.length > 0) {
+      if (!options.allowPort || !suffix.startsWith(':')) return undefined;
+      port = validPort(suffix.slice(1));
+      if (port === undefined) return undefined;
+    }
+    if (!isIPv6(address)) return undefined;
+
+    try {
+      const hostname = new URL(`http://[${address}]/`).hostname;
+      return port === undefined ? { hostname } : { hostname, port };
+    } catch {
+      return undefined;
+    }
+  }
+
+  const colonCount = [...input].filter((character) => character === ':').length;
+  if (colonCount > 0) {
+    if (colonCount > 1) {
+      if (!options.allowBareIpv6 || !isIPv6(input)) return undefined;
+      try {
+        const hostname = new URL(`http://[${input}]/`).hostname;
+        return { hostname };
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (!options.allowPort) return undefined;
+    const separator = input.lastIndexOf(':');
+    authority = input.slice(0, separator);
+    port = validPort(input.slice(separator + 1));
+    if (authority.length === 0 || port === undefined) return undefined;
+  }
+
+  if (authority.includes('[') || authority.includes(']')) return undefined;
+
+  try {
+    const hostname = new URL(`http://${authority}/`).hostname;
+    if (isIPv4(hostname)) return port === undefined ? { hostname } : { hostname, port };
+    const normalized = normalizedDnsHost(hostname);
+    return normalized === undefined
+      ? undefined
+      : port === undefined
+        ? { hostname: normalized }
+        : { hostname: normalized, port };
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeConfiguredHost(value: string): string | undefined {
+  return canonicalizeHost(value, { allowPort: false, allowBareIpv6: true, trim: true })?.hostname;
+}
+
+function normalizeConfiguredBindHost(value: string): string | undefined {
+  const hostname = normalizeConfiguredHost(value);
+  return hostname?.startsWith('[') && hostname.endsWith(']') ? hostname.slice(1, -1) : hostname;
+}
+
+export function normalizeRequestHost(value: string): string | undefined {
+  return canonicalizeHost(value, { allowPort: true, allowBareIpv6: false, trim: false })?.hostname;
+}
+
 const bindHost = z.string().trim().min(1, 'MCP_BIND_HOST must not be blank').default('127.0.0.1')
-  .transform((value) => value.toLowerCase() === '[::1]' ? '::1' : value.toLowerCase())
-  .refine(
-    (value) => /^[a-z0-9.-]+$/.test(value) || /^[0-9a-f:]+$/.test(value),
-    'MCP_BIND_HOST must be a hostname or IP address without a scheme, path, or port'
-  );
+  .transform((value, context) => {
+    const normalized = normalizeConfiguredBindHost(value);
+    if (normalized === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'MCP_BIND_HOST must be a hostname or IP address without a scheme, path, or port'
+      });
+      return z.NEVER;
+    }
+    return normalized;
+  });
 
 const allowedHosts = z.string().default('').transform((value, context) => {
-  const hosts = [...new Set(value.split(',').map((host) => host.trim().toLowerCase()).filter(Boolean))];
-  const invalid = hosts.some((host) =>
-    !(/^[a-z0-9.-]+$/.test(host) || /^\[[0-9a-f:]+\]$/.test(host))
-  );
-  if (invalid) {
-    context.addIssue({ code: 'custom', message: 'MCP_ALLOWED_HOSTS must contain hostnames without schemes, paths, or ports' });
-    return z.NEVER;
+  const hosts: string[] = [];
+  for (const rawHost of value.split(',')) {
+    if (rawHost.trim().length === 0) continue;
+    const normalized = normalizeConfiguredHost(rawHost);
+    if (normalized === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'MCP_ALLOWED_HOSTS must contain valid hostnames without schemes, paths, or ports'
+      });
+      return z.NEVER;
+    }
+    if (!hosts.includes(normalized)) hosts.push(normalized);
   }
   return hosts;
 });

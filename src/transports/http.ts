@@ -2,20 +2,16 @@ import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import {
-  hostHeaderValidation,
-  localhostHostValidation,
-  toNodeHandler,
-  type NodeIncomingMessageLike
-} from '@modelcontextprotocol/node';
+import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { AroFloClient } from '../aroflo/client.js';
-import { loadConfig, type AppConfig } from '../config.js';
+import { loadConfig, normalizeRequestHost, type AppConfig } from '../config.js';
 import { buildMcpServer } from '../mcp/build-server.js';
 import { redact } from '../redaction.js';
 
 const CONNECTOR_VERSION = '0.1.0';
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
+const REJECTION_CLOSE_DEADLINE_MS = 250;
 const SHUTDOWN_DEADLINE_MS = 5_000;
 const LOOPBACK_BIND_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
 const SECRET_ENVIRONMENT_KEYS = [
@@ -69,19 +65,46 @@ function declaredBodyLength(request: IncomingMessage): number | undefined {
   return Number(raw);
 }
 
-function rejectOversize(request: IncomingMessage, response: ServerResponse): void {
-  response.shouldKeepAlive = false;
-  request.resume();
+function closeRejectedRequest(
+  request: IncomingMessage,
+  response: ServerResponse,
+  status: number,
+  body: Readonly<Record<string, unknown>>,
+  headers: Readonly<Record<string, string>> = {}
+): void {
   if (response.destroyed || response.writableEnded) {
     request.destroy();
     return;
   }
-  response.writeHead(413, {
+
+  let forced = false;
+  let fallback: NodeJS.Timeout | undefined;
+  const forceClose = () => {
+    if (forced) return;
+    forced = true;
+    if (fallback !== undefined) clearTimeout(fallback);
+    if (!request.destroyed) request.destroy();
+    if (!response.destroyed && !response.writableEnded) response.destroy();
+  };
+
+  response.once('finish', () => setImmediate(forceClose));
+  response.once('close', forceClose);
+  fallback = setTimeout(forceClose, REJECTION_CLOSE_DEADLINE_MS);
+  fallback.unref();
+
+  response.shouldKeepAlive = false;
+  request.resume();
+  response.writeHead(status, {
     'cache-control': 'no-store',
     connection: 'close',
-    'content-type': 'application/json; charset=utf-8'
+    'content-type': 'application/json; charset=utf-8',
+    ...headers
   });
-  response.end(JSON.stringify({ error: 'Request body too large' }), () => request.destroy());
+  response.end(JSON.stringify(body));
+}
+
+function rejectOversize(request: IncomingMessage, response: ServerResponse): void {
+  closeRejectedRequest(request, response, 413, { error: 'Request body too large' });
 }
 
 async function readJsonBody(request: IncomingMessage): Promise<BodyReadResult> {
@@ -134,6 +157,17 @@ function requestPath(request: IncomingMessage): string {
   return (request.url ?? '/').split('?', 1)[0] ?? '/';
 }
 
+function requestHost(request: IncomingMessage): string | undefined {
+  const hostValues: string[] = [];
+  for (let index = 0; index < request.rawHeaders.length; index += 2) {
+    const name = request.rawHeaders[index];
+    const value = request.rawHeaders[index + 1];
+    if (name?.toLowerCase() === 'host' && value !== undefined) hostValues.push(value);
+  }
+  if (hostValues.length !== 1) return undefined;
+  return normalizeRequestHost(hostValues[0]!);
+}
+
 export function createHttpServer(config: AppConfig): Server {
   const expectedToken = config.mcpAccessToken;
   if (config.transport !== 'http' || expectedToken === undefined || expectedToken.length === 0) {
@@ -144,9 +178,6 @@ export function createHttpServer(config: AppConfig): Server {
     throw new Error('MCP_ALLOWED_HOSTS is required when MCP_BIND_HOST is outside loopback');
   }
 
-  const validateHost = loopback
-    ? localhostHostValidation()
-    : hostHeaderValidation([...config.allowedHosts]);
   const dependencies = { config, client: new AroFloClient({ config }) };
   const mcp = createMcpHandler(() => buildMcpServer(dependencies), {
     legacy: 'stateless'
@@ -155,12 +186,15 @@ export function createHttpServer(config: AppConfig): Server {
 
   const server = createServer((request, response) => {
     void (async () => {
-      if (!validateHost(request, response)) return;
+      const hostname = requestHost(request);
+      if (hostname === undefined || !config.allowedHosts.has(hostname)) {
+        closeRejectedRequest(request, response, 403, { error: 'Forbidden' });
+        return;
+      }
 
       const length = declaredBodyLength(request);
       if (Number.isNaN(length)) {
-        request.resume();
-        jsonResponse(response, 400, { error: 'Invalid Content-Length' });
+        closeRejectedRequest(request, response, 400, { error: 'Invalid Content-Length' });
         return;
       }
       if (length !== undefined && length > MAX_REQUEST_BODY_BYTES) {
@@ -175,13 +209,11 @@ export function createHttpServer(config: AppConfig): Server {
         return;
       }
       if (path !== '/mcp') {
-        request.resume();
-        jsonResponse(response, 404, { error: 'Not found' });
+        closeRejectedRequest(request, response, 404, { error: 'Not found' });
         return;
       }
       if (!bearerMatches(request.headers.authorization, expectedToken)) {
-        request.resume();
-        jsonResponse(response, 401, { error: 'Unauthorized' }, { 'www-authenticate': 'Bearer' });
+        closeRejectedRequest(request, response, 401, { error: 'Unauthorized' }, { 'www-authenticate': 'Bearer' });
         return;
       }
 
@@ -193,7 +225,7 @@ export function createHttpServer(config: AppConfig): Server {
           return;
         }
         if (result.kind === 'invalid') {
-          jsonResponse(response, 400, { error: 'Invalid JSON' });
+          closeRejectedRequest(request, response, 400, { error: 'Invalid JSON' });
           return;
         }
         if (result.kind === 'aborted') return;

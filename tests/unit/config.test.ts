@@ -81,4 +81,60 @@ describe('loadConfig', () => {
     expect(() => loadConfig({ ...base, PORT: '0' })).toThrow(/PORT/);
     expect(() => loadConfig({ ...base, PORT: '65536' })).toThrow(/PORT/);
   });
+
+  it('canonicalizes configured Host names with the same URL semantics used at the request boundary', () => {
+    const config = loadConfig({
+      ...base,
+      MCP_TRANSPORT: 'http',
+      MCP_ACCESS_TOKEN: 'fake-token',
+      MCP_BIND_HOST: '0.0.0.0',
+      MCP_ALLOWED_HOSTS: 'EXAMPLE.test.,127.1,[0:0:0:0:0:0:0:1]'
+    });
+
+    expect(config.allowedHosts).toEqual(new Set(['example.test', '127.0.0.1', '[::1]']));
+  });
+
+  it.each([
+    'https://mcp.example.test',
+    'user@mcp.example.test',
+    'mcp.example.test/path',
+    'mcp.example.test?query=value',
+    'mcp.example.test#fragment',
+    'mcp..example.test',
+    '-mcp.example.test',
+    'mcp-.example.test',
+    '999.999.999.999',
+    'mcp.example.test:3000',
+    '[::1]:3000'
+  ])('rejects an ambiguous configured bind host: %s', (bindHost) => {
+    expect(() => loadConfig({
+      ...base,
+      MCP_TRANSPORT: 'http',
+      MCP_ACCESS_TOKEN: 'fake-token',
+      MCP_BIND_HOST: bindHost,
+      MCP_ALLOWED_HOSTS: 'mcp.example.test'
+    })).toThrow(/MCP_BIND_HOST/);
+  });
+
+  it.each([
+    'https://mcp.example.test',
+    'user@mcp.example.test',
+    'mcp.example.test/path',
+    'mcp.example.test?query=value',
+    'mcp.example.test#fragment',
+    'mcp..example.test',
+    '-mcp.example.test',
+    'mcp-.example.test',
+    '999.999.999.999',
+    'mcp.example.test:3000',
+    '[::1]:3000'
+  ])('rejects an ambiguous configured allowlist host: %s', (allowedHost) => {
+    expect(() => loadConfig({
+      ...base,
+      MCP_TRANSPORT: 'http',
+      MCP_ACCESS_TOKEN: 'fake-token',
+      MCP_BIND_HOST: '0.0.0.0',
+      MCP_ALLOWED_HOSTS: allowedHost
+    })).toThrow(/MCP_ALLOWED_HOSTS/);
+  });
 });

@@ -1,10 +1,29 @@
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { request as httpRequest, type RequestOptions } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { afterEach, describe, expect, it } from 'vitest';
+import type { FetchLikeMcpHandler, NodeMcpRequestHandler, ToNodeHandlerOptions } from '@modelcontextprotocol/node';
+import { request as httpRequest, type IncomingMessage, type RequestOptions } from 'node:http';
+import { createConnection, type AddressInfo, type Socket } from 'node:net';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type AppConfig } from '../../src/config.js';
 import { createHttpServer, shutdownHttpServer } from '../../src/transports/http.js';
 import { READ_TOOL_NAMES } from '../../src/tools/read-tools.js';
+
+const mcpDispatches = vi.hoisted(() => vi.fn());
+
+vi.mock('@modelcontextprotocol/node', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@modelcontextprotocol/node')>();
+  return {
+    ...actual,
+    toNodeHandler: (handler: FetchLikeMcpHandler, options?: ToNodeHandlerOptions): NodeMcpRequestHandler => {
+      const actualHandler = actual.toNodeHandler(handler, options);
+      return async (request, response, parsedBody) => {
+        mcpDispatches();
+        return parsedBody === undefined
+          ? actualHandler(request, response)
+          : actualHandler(request, response, parsedBody);
+      };
+    }
+  };
+});
 
 const baseEnvironment = {
   AROFLO_UENCODED: 'fake-user',
@@ -24,8 +43,17 @@ interface HttpResponse {
   body: string;
 }
 
+interface RawHttpResponse {
+  response: string;
+  elapsedMs: number;
+}
+
 const servers: import('node:http').Server[] = [];
 const clients: Client[] = [];
+
+beforeEach(() => {
+  mcpDispatches.mockClear();
+});
 
 afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close().catch(() => undefined)));
@@ -70,6 +98,70 @@ async function send(
     request.once('error', reject);
     for (const chunk of chunks) request.write(chunk);
     request.end();
+  });
+}
+
+function sendRawAndWaitForClose(port: number, request: string, timeoutMs = 1_500): Promise<RawHttpResponse> {
+  return new Promise<RawHttpResponse>((resolve, reject) => {
+    const startedAt = Date.now();
+    const socket = createConnection({ host: '127.0.0.1', port });
+    const chunks: Buffer[] = [];
+    let settled = false;
+    let socketError: Error | undefined;
+    const timeout = setTimeout(() => {
+      finish(new Error(`Raw HTTP connection did not close within ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.destroy();
+      if (error !== undefined) {
+        reject(error);
+        return;
+      }
+      resolve({ response: Buffer.concat(chunks).toString('utf8'), elapsedMs: Date.now() - startedAt });
+    };
+
+    socket.on('data', (chunk: Buffer) => chunks.push(chunk));
+    socket.on('error', (error) => {
+      socketError = error;
+    });
+    socket.once('connect', () => socket.write(request));
+    socket.once('close', () => {
+      finish(chunks.length === 0 && socketError !== undefined ? socketError : undefined);
+    });
+  });
+}
+
+function waitForAbortedOrErroredRequest(
+  server: import('node:http').Server,
+  timeoutMs = 1_000
+): Promise<'aborted' | 'error'> {
+  return new Promise<'aborted' | 'error'>((resolve, reject) => {
+    let observedRequest: IncomingMessage | undefined;
+    const onAborted = () => finish('aborted');
+    const onError = () => finish('error');
+    const onRequest = (request: IncomingMessage) => {
+      observedRequest = request;
+      request.once('aborted', onAborted);
+      request.once('error', onError);
+    };
+    const timeout = setTimeout(() => {
+      server.off('request', onRequest);
+      reject(new Error(`Server did not observe an aborted or errored stream within ${timeoutMs}ms`));
+    }, timeoutMs);
+    const finish = (event: 'aborted' | 'error') => {
+      clearTimeout(timeout);
+      if (observedRequest !== undefined) {
+        observedRequest.off('aborted', onAborted);
+        observedRequest.off('error', onError);
+      }
+      resolve(event);
+    };
+
+    server.once('request', onRequest);
   });
 }
 
@@ -171,6 +263,101 @@ describe('hosted HTTP transport', () => {
     expect(response.body).not.toContain('fake-access-token');
   });
 
+  it('does not dispatch rejected Host, bearer, or unknown-route requests to MCP', async () => {
+    const { port } = await listen(loadConfig(baseEnvironment));
+    const cases = [
+      {
+        path: '/mcp',
+        headers: { host: `attacker.example:${port}` },
+        expectedStatus: 403
+      },
+      {
+        path: '/mcp',
+        headers: { host: `127.0.0.1:${port}`, authorization: 'Bearer wrong-access-token' },
+        expectedStatus: 401
+      },
+      {
+        path: '/not-mcp',
+        headers: { host: `127.0.0.1:${port}` },
+        expectedStatus: 404
+      }
+    ] as const;
+
+    for (const testCase of cases) {
+      const response = await send(port, testCase.path, { headers: testCase.headers });
+      expect(response.status).toBe(testCase.expectedStatus);
+    }
+
+    expect(mcpDispatches).not.toHaveBeenCalled();
+  });
+
+  it('compares request Hosts using canonical case, trailing-dot, IPv4, and IPv6 forms', async () => {
+    const config = loadConfig({
+      ...baseEnvironment,
+      MCP_BIND_HOST: '0.0.0.0',
+      MCP_ALLOWED_HOSTS: 'example.test,127.0.0.1,[::1]'
+    });
+    const { port } = await listen(config);
+
+    for (const host of ['EXAMPLE.TEST.', '0x7f000001', '[0:0:0:0:0:0:0:1]']) {
+      const response = await send(port, '/healthz', { headers: { host: `${host}:${port}` } });
+      expect(response.status).toBe(200);
+    }
+  });
+
+  it('rejects duplicate and malformed Host headers before authentication and MCP handling', async () => {
+    const { port } = await listen(loadConfig(baseEnvironment));
+    const cases = [
+      [
+        'duplicate Host headers',
+        `GET /healthz HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nHost: attacker.example\r\nConnection: close\r\n\r\n`
+      ],
+      [
+        'a Host containing a scheme',
+        `GET /healthz HTTP/1.1\r\nHost: https://127.0.0.1:${port}\r\nConnection: close\r\n\r\n`
+      ],
+      [
+        'a Host containing an empty DNS label',
+        `GET /healthz HTTP/1.1\r\nHost: 127..0.0.1:${port}\r\nConnection: close\r\n\r\n`
+      ]
+    ] as const;
+
+    for (const [_label, request] of cases) {
+      const result = await sendRawAndWaitForClose(port, request);
+      expect(result.response).toMatch(/^HTTP\/1\.1 403 /);
+      expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
+    }
+  });
+
+  it.each([
+    [
+      'a rejected Host',
+      403,
+      (port: number) =>
+        `POST /mcp HTTP/1.1\r\nHost: attacker.example:${port}\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n1\r\n{\r\n`
+    ],
+    [
+      'a rejected bearer token',
+      401,
+      (port: number) =>
+        `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer wrong-access-token\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n1\r\n{\r\n`
+    ],
+    [
+      'an unknown route',
+      404,
+      (port: number) =>
+        `POST /not-mcp HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n1\r\n{\r\n`
+    ]
+  ])('closes an unterminated chunked body after responding to %s', async (_label, expectedStatus, requestForPort) => {
+    const { port } = await listen(loadConfig(baseEnvironment));
+    const result = await sendRawAndWaitForClose(port, requestForPort(port));
+
+    expect(result.elapsedMs).toBeLessThan(1_500);
+    expect(result.response).toMatch(new RegExp(`^HTTP/1\\.1 ${expectedStatus} `));
+    expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
+    expect(result.response).not.toContain('fake-access-token');
+  });
+
   it('rejects a declared body above 1 MiB before MCP handling', async () => {
     const { port } = await listen(loadConfig(baseEnvironment));
     const response = await send(port, '/mcp', {
@@ -200,6 +387,45 @@ describe('hosted HTTP transport', () => {
     });
 
     expect(response.status).toBe(413);
+  });
+
+  it('keeps parser-rejected framing errors out of the MCP route', async () => {
+    const { port } = await listen(loadConfig(baseEnvironment));
+    const cases = [
+      `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Length: invalid\r\nConnection: close\r\n\r\n`,
+      `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nContent-Length: 2\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n{}`
+    ];
+
+    for (const request of cases) {
+      const result = await sendRawAndWaitForClose(port, request);
+      expect(result.response).toMatch(/^HTTP\/1\.1 400 /);
+      expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
+    }
+  });
+
+  it('leaves the server available after an authenticated request stream aborts or errors before dispatch', async () => {
+    const { server, port } = await listen(loadConfig(baseEnvironment));
+    const serverStreamEvent = waitForAbortedOrErroredRequest(server);
+    const socket = await new Promise<Socket>((resolve, reject) => {
+      const candidate = createConnection({ host: '127.0.0.1', port });
+      candidate.once('connect', () => resolve(candidate));
+      candidate.once('error', reject);
+    });
+    socket.on('error', () => undefined);
+    const closed = new Promise<void>((resolve) => socket.once('close', resolve));
+    socket.write(
+      `POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAuthorization: Bearer fake-access-token\r\n` +
+        'Content-Type: application/json\r\nContent-Length: 20\r\n\r\n{'
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    socket.destroy();
+    const streamEvent = await serverStreamEvent;
+    await closed;
+
+    const health = await send(port, '/healthz', { headers: { host: `127.0.0.1:${port}` } });
+    expect(['aborted', 'error']).toContain(streamEvent);
+    expect(mcpDispatches).not.toHaveBeenCalled();
+    expect(health.status).toBe(200);
   });
 
   it('bounds shutdown when a client never finishes its request body', async () => {
