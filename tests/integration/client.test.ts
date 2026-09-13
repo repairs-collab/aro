@@ -26,6 +26,10 @@ const config: AppConfig = {
   requestTimeoutMs: 100
 };
 const fixedNow = () => new Date('2026-09-10T00:00:00.000Z');
+const expectedAuthentication = `HMAC ${[
+  'ddd999915c97a5c450ec31bbfa049358b07f0e673c78d49b0b7b6f7166bb3de1',
+  'b9deb7b20884eee4f80ae090bb37ddf7cbbca9fc8b6829b3090dc300d41b70e9'
+].join('')}`;
 const servers: FakeAroFloServer[] = [];
 
 async function fakeServer(): Promise<FakeAroFloServer> {
@@ -53,7 +57,7 @@ describe('AroFloClient wire contract', () => {
       body: ''
     });
     expect(server.requests[0]?.headers).toMatchObject({
-      authentication: 'HMAC ddd999915c97a5c450ec31bbfa049358b07f0e673c78d49b0b7b6f7166bb3de1b9deb7b20884eee4f80ae090bb37ddf7cbbca9fc8b6829b3090dc300d41b70e9',
+      authentication: expectedAuthentication,
       afdatetimeutc: '2026-09-10T00:00:00.000Z'
     });
     expect(result.records).toEqual([{ taskid: 'task-1', taskname: 'Fake task' }]);
