@@ -62,7 +62,7 @@ describe('secret scanner', () => {
     expect(serialized).not.toContain('QWxwaGFCZXRhR2FtbWE');
   });
 
-  it('flags real dotenv files and unsupported binary text while allowing the blank example and skipping .git, node_modules, and symlinks', async () => {
+  it('flags real dotenv files, unsupported binary text, and links while allowing the blank example and skipping .git and node_modules', async () => {
     const root = await temporaryRoot();
     const outside = await temporaryRoot();
     const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
@@ -83,7 +83,8 @@ describe('secret scanner', () => {
 
     expect(result.findings).toEqual([
       { file: '.env.local', categories: ['dotenv-file'] },
-      { file: 'binary.bin', categories: ['unsupported-text'] }
+      { file: 'binary.bin', categories: ['unsupported-text'] },
+      { file: 'linked-directory', categories: ['linked-path'] }
     ]);
     expect(result.scannedFiles).toBe(3);
     expect(result.findings.every((finding) => !['secret.txt', 'outside.txt'].includes(basename(finding.file)))).toBe(true);
@@ -226,6 +227,67 @@ describe('secret scanner', () => {
       ...DEFAULT_SCAN_PATHS,
       'delivery-extracted'
     ]);
+  });
+
+  it('normalizes the single leading separator forwarded by the documented pnpm command and scans its extra path', async () => {
+    const root = await temporaryRoot();
+    const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
+    await writeFile(join(root, 'config.yaml'), `${secretName}: generated-extra-path-value`, 'utf8');
+
+    const result = await scanFiles(scanPathsForCli(['--', root]), []);
+
+    expect(result.findings).toEqual([{
+      file: 'config.yaml',
+      categories: ['populated-credential']
+    }]);
+  });
+
+  it('reports only the requested missing path when the documented pnpm command forwards its separator', async () => {
+    const root = await temporaryRoot();
+    const missing = join(root, 'missing-extracted-archive');
+
+    const result = await scanFiles(scanPathsForCli(['--', missing]), []);
+
+    expect(result.findings).toEqual([{
+      file: 'missing-extracted-archive',
+      categories: ['missing-path']
+    }]);
+  });
+
+  it('fails closed for an explicitly supplied linked root without following it', async () => {
+    const parent = await temporaryRoot();
+    const outside = await temporaryRoot();
+    const linkedRoot = join(parent, 'linked-root');
+    const sensitive = 'generated-linked-root-sensitive-value';
+    await writeFile(join(outside, 'outside.txt'), sensitive, 'utf8');
+    await symlink(outside, linkedRoot, 'junction');
+
+    const result = await scanFiles([linkedRoot], [sensitive]);
+
+    expect(result).toEqual({
+      ok: false,
+      scannedFiles: 0,
+      findings: [{ file: 'linked-root', categories: ['linked-path'] }]
+    });
+    expect(JSON.stringify(result)).not.toContain(sensitive);
+  });
+
+  it('fails closed for a linked entry under a scanned root without following it', async () => {
+    const root = await temporaryRoot();
+    const outside = await temporaryRoot();
+    const sensitive = 'generated-nested-link-sensitive-value';
+    await writeFile(join(root, 'clean.txt'), 'clean', 'utf8');
+    await writeFile(join(outside, 'outside.txt'), sensitive, 'utf8');
+    await symlink(outside, join(root, 'nested-link'), 'junction');
+
+    const result = await scanFiles([root], [sensitive]);
+
+    expect(result).toEqual({
+      ok: false,
+      scannedFiles: 1,
+      findings: [{ file: 'nested-link', categories: ['linked-path'] }]
+    });
+    expect(JSON.stringify(result)).not.toContain(sensitive);
   });
 
   it('decodes UTF-16LE and UTF-16BE BOM text and detects both static and exact sensitive values', async () => {

@@ -11,6 +11,7 @@ export type SecretFindingCategory =
   | 'authentication-signature'
   | 'dotenv-file'
   | 'missing-path'
+  | 'linked-path'
   | 'unsupported-text'
   | 'file-too-large';
 
@@ -59,7 +60,8 @@ export const DEFAULT_SCAN_PATHS = Object.freeze([
 ] as const);
 
 export function scanPathsForCli(additionalPaths: readonly string[]): readonly string[] {
-  return [...DEFAULT_SCAN_PATHS, ...additionalPaths];
+  const normalizedPaths = additionalPaths[0] === '--' ? additionalPaths.slice(1) : additionalPaths;
+  return [...DEFAULT_SCAN_PATHS, ...normalizedPaths];
 }
 
 const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY)|MCP_ACCESS_TOKEN)';
@@ -192,6 +194,7 @@ async function walk(root: string): Promise<{
   rootIsFile: boolean;
   files: string[];
   missing: boolean;
+  linked: string[];
   unreadable: string[];
 }> {
   const absoluteRoot = resolve(root);
@@ -200,15 +203,22 @@ async function walk(root: string): Promise<{
     rootStatus = await lstat(absoluteRoot);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { rootIsFile: false, files: [], missing: true, unreadable: [] };
+      return { rootIsFile: false, files: [], missing: true, linked: [], unreadable: [] };
     }
-    return { rootIsFile: false, files: [], missing: false, unreadable: [absoluteRoot] };
+    return { rootIsFile: false, files: [], missing: false, linked: [], unreadable: [absoluteRoot] };
   }
-  if (rootStatus.isSymbolicLink()) return { rootIsFile: false, files: [], missing: false, unreadable: [] };
-  if (rootStatus.isFile()) return { rootIsFile: true, files: [absoluteRoot], missing: false, unreadable: [] };
-  if (!rootStatus.isDirectory()) return { rootIsFile: false, files: [], missing: false, unreadable: [] };
+  if (rootStatus.isSymbolicLink()) {
+    return { rootIsFile: false, files: [], missing: false, linked: [absoluteRoot], unreadable: [] };
+  }
+  if (rootStatus.isFile()) {
+    return { rootIsFile: true, files: [absoluteRoot], missing: false, linked: [], unreadable: [] };
+  }
+  if (!rootStatus.isDirectory()) {
+    return { rootIsFile: false, files: [], missing: false, linked: [], unreadable: [] };
+  }
 
   const files: string[] = [];
+  const linked: string[] = [];
   const unreadable: string[] = [];
   const visit = async (directory: string): Promise<void> => {
     let entries: Dirent[];
@@ -221,13 +231,17 @@ async function walk(root: string): Promise<{
     for (const entry of entries) {
       if (entry.isDirectory() && SKIPPED_DIRECTORIES.has(entry.name)) continue;
       const candidate = resolve(directory, entry.name);
-      if (!isContained(absoluteRoot, candidate) || entry.isSymbolicLink()) continue;
+      if (!isContained(absoluteRoot, candidate)) continue;
+      if (entry.isSymbolicLink()) {
+        linked.push(candidate);
+        continue;
+      }
       if (entry.isDirectory()) await visit(candidate);
       else if (entry.isFile()) files.push(candidate);
     }
   };
   await visit(absoluteRoot);
-  return { rootIsFile: false, files, missing: false, unreadable };
+  return { rootIsFile: false, files, missing: false, linked, unreadable };
 }
 
 export async function scanFiles(paths: readonly string[], sensitiveValues: readonly string[]): Promise<ScanResult> {
@@ -237,10 +251,13 @@ export async function scanFiles(paths: readonly string[], sensitiveValues: reado
 
   for (const requestedPath of paths) {
     const absoluteRoot = resolve(requestedPath);
-    const { rootIsFile, files, missing, unreadable } = await walk(absoluteRoot);
+    const { rootIsFile, files, missing, linked, unreadable } = await walk(absoluteRoot);
     if (missing) {
       findings.push({ file: basename(absoluteRoot), categories: ['missing-path'] });
       continue;
+    }
+    for (const path of linked) {
+      findings.push({ file: displayPath(absoluteRoot, path, rootIsFile), categories: ['linked-path'] });
     }
     for (const path of unreadable) {
       findings.push({ file: displayPath(absoluteRoot, path, rootIsFile), categories: ['unsupported-text'] });
