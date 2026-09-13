@@ -1,8 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { scanFiles } from '../../scripts/secret-scan.js';
+import {
+  DEFAULT_SCAN_PATHS,
+  MAX_SCAN_FILE_BYTES,
+  scanFiles,
+  scanPathsForCli
+} from '../../scripts/secret-scan.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -57,7 +62,7 @@ describe('secret scanner', () => {
     expect(serialized).not.toContain('QWxwaGFCZXRhR2FtbWE');
   });
 
-  it('flags real dotenv files while allowing the blank example and skips .git, node_modules, binaries, and symlinks', async () => {
+  it('flags real dotenv files and unsupported binary text while allowing the blank example and skipping .git, node_modules, and symlinks', async () => {
     const root = await temporaryRoot();
     const outside = await temporaryRoot();
     const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
@@ -76,7 +81,10 @@ describe('secret scanner', () => {
 
     const result = await scanFiles([root], []);
 
-    expect(result.findings).toEqual([{ file: '.env.local', categories: ['dotenv-file'] }]);
+    expect(result.findings).toEqual([
+      { file: '.env.local', categories: ['dotenv-file'] },
+      { file: 'binary.bin', categories: ['unsupported-text'] }
+    ]);
     expect(result.scannedFiles).toBe(3);
     expect(result.findings.every((finding) => !['secret.txt', 'outside.txt'].includes(basename(finding.file)))).toBe(true);
   });
@@ -112,5 +120,162 @@ describe('secret scanner', () => {
       file: 'mixed.txt',
       categories: ['authorization-header', 'authentication-signature']
     }]);
+  });
+
+  it('detects populated credential assignments in JSON and quoted or unquoted YAML for every secret name', async () => {
+    const root = await temporaryRoot();
+    const credentialNames = [
+      ['AROFLO', 'UENCODED'].join('_'),
+      ['AROFLO', 'PENCODED'].join('_'),
+      ['AROFLO', 'ORG', 'ENCODED'].join('_'),
+      ['AROFLO', 'SECRET', 'KEY'].join('_'),
+      ['MCP', 'ACCESS', 'TOKEN'].join('_')
+    ];
+    await writeFile(
+      join(root, 'config.json'),
+      JSON.stringify(Object.fromEntries(credentialNames.map((name, index) => [name, `generated-json-${index}`]))),
+      'utf8'
+    );
+    await writeFile(
+      join(root, 'config.yaml'),
+      credentialNames.map((name, index) => index % 2 === 0
+        ? `"${name}": "generated-yaml-${index}"`
+        : `${name}: generated-yaml-${index}`).join('\n'),
+      'utf8'
+    );
+
+    const result = await scanFiles([root], []);
+
+    expect(result.findings).toEqual([
+      { file: 'config.json', categories: ['populated-credential'] },
+      { file: 'config.yaml', categories: ['populated-credential'] }
+    ]);
+  });
+
+  it('does not exempt secret-looking values merely because they begin with test or private', async () => {
+    const root = await temporaryRoot();
+    const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
+    const tokenName = ['MCP', 'ACCESS', 'TOKEN'].join('_');
+    await writeFile(join(root, 'prefixed.env.example'), [
+      `${secretName}=test-real-looking-secret`,
+      `${tokenName}=private-production-key`
+    ].join('\n'), 'utf8');
+
+    const result = await scanFiles([root], []);
+
+    expect(result.findings).toEqual([{
+      file: 'prefixed.env.example',
+      categories: ['populated-credential']
+    }]);
+  });
+
+  it('always reports an exact current-environment value even when it is an explicit fixture placeholder', async () => {
+    const root = await temporaryRoot();
+    const userName = ['AROFLO', 'UENCODED'].join('_');
+    await writeFile(join(root, 'fixture.txt'), `${userName}=fake-user`, 'utf8');
+
+    const result = await scanFiles([root], ['fake-user']);
+
+    expect(result.findings).toEqual([{
+      file: 'fixture.txt',
+      categories: ['sensitive-value']
+    }]);
+  });
+
+  it('fails closed with a filename-only finding when an explicitly requested path is missing', async () => {
+    const root = await temporaryRoot();
+    const missing = join(root, 'missing-extracted-archive');
+
+    const result = await scanFiles([missing], ['must-not-appear']);
+
+    expect(result).toEqual({
+      ok: false,
+      scannedFiles: 0,
+      findings: [{ file: 'missing-extracted-archive', categories: ['missing-path'] }]
+    });
+    expect(JSON.stringify(result)).not.toContain('must-not-appear');
+  });
+
+  it('includes every required tracked root configuration in the default CLI scan paths', () => {
+    expect(DEFAULT_SCAN_PATHS).toEqual(expect.arrayContaining([
+      'src',
+      'scripts',
+      'tests',
+      'dist',
+      'docs',
+      'skills',
+      '.codex-plugin',
+      '.mcp.json',
+      '.env.example',
+      '.dockerignore',
+      '.gitignore',
+      'package.json',
+      'pnpm-lock.yaml',
+      'pnpm-workspace.yaml',
+      'tsconfig.json',
+      'vitest.config.ts',
+      'README.md',
+      'DEPLOYMENT.md',
+      'Dockerfile'
+    ]));
+    expect(DEFAULT_SCAN_PATHS).not.toContain('outputs');
+  });
+
+  it('adds caller-supplied extracted archive trees to the CLI scan paths', () => {
+    expect(scanPathsForCli(['delivery-extracted'])).toEqual([
+      ...DEFAULT_SCAN_PATHS,
+      'delivery-extracted'
+    ]);
+  });
+
+  it('decodes UTF-16LE and UTF-16BE BOM text and detects both static and exact sensitive values', async () => {
+    const root = await temporaryRoot();
+    const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
+    const value = 'generated-utf16-sensitive-value';
+    const text = `${secretName}=${value}`;
+    const littleEndian = Buffer.from(text, 'utf16le');
+    const bigEndian = Buffer.from(littleEndian);
+    for (let index = 0; index < bigEndian.length; index += 2) {
+      const first = bigEndian[index];
+      bigEndian[index] = bigEndian[index + 1]!;
+      bigEndian[index + 1] = first!;
+    }
+    await writeFile(join(root, 'little.yaml'), Buffer.concat([Buffer.from([0xff, 0xfe]), littleEndian]));
+    await writeFile(join(root, 'big.yaml'), Buffer.concat([Buffer.from([0xfe, 0xff]), bigEndian]));
+
+    const result = await scanFiles([root], [value]);
+
+    expect(result.findings).toEqual([
+      { file: 'big.yaml', categories: ['sensitive-value', 'populated-credential'] },
+      { file: 'little.yaml', categories: ['sensitive-value', 'populated-credential'] }
+    ]);
+    expect(JSON.stringify(result)).not.toContain(value);
+  });
+
+  it('fails closed without reading oversized files into memory', async () => {
+    const root = await temporaryRoot();
+    const oversized = join(root, 'oversized.txt');
+    await writeFile(oversized, 'x', 'utf8');
+    await truncate(oversized, MAX_SCAN_FILE_BYTES + 1);
+
+    const result = await scanFiles([root], ['not-present']);
+
+    expect(result.findings).toEqual([{ file: 'oversized.txt', categories: ['file-too-large'] }]);
+    expect(JSON.stringify(result)).not.toContain('not-present');
+  });
+
+  it('does not parse an archive as text and scans its separately extracted tree', async () => {
+    const root = await temporaryRoot();
+    const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
+    await writeFile(join(root, 'delivery.zip'), `${secretName}=archive-bytes-must-not-be-parsed`, 'utf8');
+    await mkdir(join(root, 'delivery-extracted'), { recursive: true });
+    await writeFile(join(root, 'delivery-extracted', 'config.yaml'), `${secretName}: extracted-secret`, 'utf8');
+
+    const result = await scanFiles([root], []);
+
+    expect(result.findings).toEqual([
+      { file: join('delivery-extracted', 'config.yaml'), categories: ['populated-credential'] },
+      { file: 'delivery.zip', categories: ['unsupported-text'] }
+    ]);
   });
 });

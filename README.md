@@ -48,6 +48,8 @@ pnpm scan:secrets
 
 Codex launches the connector through `.mcp.json` and `scripts/start-local.ps1`. The launcher resolves Node from `AROFLO_NODE_PATH`, then the command path, then the bundled Codex runtime. For direct diagnostics, run `pnpm start:stdio` from an environment containing the required variables. Do not type credentials into command arguments.
 
+The secret scanner reads UTF-8 plus BOM-marked UTF-16LE/BE text. It fails closed on missing paths, unsupported text, archives, and files larger than 2 MiB; findings contain filenames and categories only. Extract delivery archives first and pass each extracted tree as an additional scan path.
+
 ## Tool catalog
 
 | Tool | Availability |
@@ -58,10 +60,12 @@ Codex launches the connector through `.mcp.json` and `scripts/start-local.ps1`. 
 | `aroflo_get_record` | Always; one record by identifier |
 | `aroflo_list_changes` | Always; bounded change feed |
 | `aroflo_preview_change` | Always; local validation only |
-| `aroflo_create_record` | Only when an enabled area supports create |
-| `aroflo_update_record` | Only when an enabled area supports update |
+| `aroflo_create_record` | Appears jointly with update when any allowed write operation is enabled |
+| `aroflo_update_record` | Appears jointly with create when any allowed write operation is enabled |
 
 There is no delete or archive capability. Raw query strings and raw XML are never accepted from callers.
+
+When any enabled writable operation exists, both `aroflo_create_record` and `aroflo_update_record` appear together in discovery. Each selected area still validates whether create or update is supported before any request.
 
 ## Read-only acceptance
 

@@ -49,7 +49,13 @@ Permit inbound traffic only through the HTTPS edge. Restrict secret access and d
 2. Confirm MCP discovery shows the six read/preview tools and no create/update tools.
 3. From a secure environment with the same runtime secrets and both write flags false, run `pnpm smoke:read-only`.
 4. Confirm it reports only connection state and task/client counts.
-5. Run `pnpm scan:secrets` against the source, built output, documentation, manifest, MCP configuration, and an extracted copy of the delivery archive.
+5. Extract the delivery archive into a temporary directory. Scan the extracted tree, not the archive file itself:
+
+```powershell
+pnpm scan:secrets -- C:\path\to\extracted-delivery
+```
+
+The command scans the normal source, built output, documentation, manifest, MCP configuration, and the additional extracted tree. A missing path, archive, unsupported text file, or file over the documented 2 MiB limit fails closed with filename/category output only.
 
 Do not perform a live POST, create, update, delete, or archive during acceptance.
 
