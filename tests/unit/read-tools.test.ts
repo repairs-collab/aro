@@ -32,7 +32,7 @@ function page(records: readonly unknown[]): AroFloPage {
 
 function fakeClient() {
   return {
-    search: vi.fn(async () => page([{ taskid: 'T-1', taskname: 'Inspect', orgname: 'Example Org' }])),
+    search: vi.fn(async (_input?: unknown) => page([{ taskid: 'T-1', taskname: 'Inspect', orgname: 'Example Org' }])),
     get: vi.fn(async () => ({ taskid: 'T-1', taskname: 'Inspect' })),
     listChanges: vi.fn(async () => page([{ taskid: 'T-2', taskname: 'Changed' }])),
     post: vi.fn()
@@ -88,6 +88,7 @@ describe('read tool definitions', () => {
     expect(tools.map((tool) => tool.name)).toEqual(READ_TOOL_NAMES);
     expect(client.search).toHaveBeenCalledTimes(2);
     expect(client.search).toHaveBeenNthCalledWith(1, { area: 'tasks', page: 1, pageSize: 1, fresh: true });
+    expect(client.search.mock.calls[1]?.[0]).not.toHaveProperty('fresh');
     expect(client.get).toHaveBeenCalledOnce();
     expect(client.listChanges).toHaveBeenCalledOnce();
     expect(client.post).not.toHaveBeenCalled();
@@ -102,7 +103,21 @@ describe('read tool definitions', () => {
       area: 'tasks', operation: 'update', id: 'T-1', fields: { taskname: 'New name' }
     });
 
-    expect(described.structuredContent).toMatchObject({ area: 'tasks', identifier: 'taskid' });
+    expect(described.structuredContent).toMatchObject({
+      area: 'tasks',
+      identifier: 'taskid',
+      createAvailable: true,
+      updateAvailable: true,
+      createFields: expect.arrayContaining(['taskname']),
+      updateFields: expect.arrayContaining(['status'])
+    });
+    const readOnlyDescription = await definition(tools, 'aroflo_describe_area').execute({ area: 'locations' });
+    expect(readOnlyDescription.structuredContent).toMatchObject({
+      createAvailable: false,
+      updateAvailable: false,
+      createFields: [],
+      updateFields: []
+    });
     expect(previewed.structuredContent).toMatchObject({
       area: 'tasks', operation: 'update', id: 'T-1', changedFields: ['taskname']
     });

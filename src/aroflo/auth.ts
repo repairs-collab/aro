@@ -48,6 +48,8 @@ export function signedHeaders(
   };
   const headers: Record<string, string> = {
     Authentication: `HMAC ${signRequest(signingInput, credentials.secretKey)}`,
+    Authorization: authorization,
+    Accept: 'text/json',
     afdatetimeutc: timestamp
   };
 

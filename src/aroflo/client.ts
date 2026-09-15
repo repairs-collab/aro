@@ -141,10 +141,12 @@ export class AroFloClient {
     if (sinceUtc.trim() === '' || !Number.isInteger(page) || page < 1 || page > MAX_PAGE) {
       throw new ConnectorError('VALIDATION', 'Invalid AroFlo changes input');
     }
-    getAreaDefinition(area);
+    const definition = getAreaDefinition(area);
     return this.requestPage('GET', area, [
-      ['zone', area],
-      ['lastupdate', sinceUtc],
+      ['zone', 'lastupdate'],
+      ['where', `and|zonename|=|${definition.zone}`],
+      ['where', `and|lastupdateutc|>|${sinceUtc}`],
+      ['order', 'lastupdateutc|asc'],
       ['page', page],
       ['pageSize', 50]
     ], page, false);
@@ -190,7 +192,10 @@ export class AroFloClient {
         if (method === 'GET') this.cache.set(cacheKey, page);
         return page;
       } catch (caught) {
-        const error = this.normalizeThrown(caught);
+        const normalized = this.normalizeThrown(caught);
+        const error = method === 'POST' && normalized.retryable
+          ? new ConnectorError(normalized.code, normalized.message, false)
+          : normalized;
         lastError = error;
         if (method !== 'GET' || !error.retryable || attempt === MAX_RETRIES) throw error;
         const retryAfter = caught instanceof HttpConnectorError ? caught.retryAfterMs : undefined;
@@ -353,7 +358,9 @@ export class AroFloClient {
     encoded: string,
     retryAfterMs: number | undefined
   ): void {
-    if (body.status === undefined) return;
+    if (body.status === undefined) {
+      throw new ConnectorError('MALFORMED_RESPONSE', 'AroFlo response did not include a status field');
+    }
     const status = String(body.status).trim().toUpperCase();
     if (['0', 'OK', 'SUCCESS', 'TRUE', '200'].includes(status)) return;
 

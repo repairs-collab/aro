@@ -79,8 +79,10 @@ export function asToolResult(value: unknown, sensitiveValues: readonly string[] 
 }
 
 export function asToolError(error: unknown, sensitiveValues: readonly string[] = []): ConnectorToolResult {
-  const code = error instanceof ConnectorError ? error.code : 'INTERNAL';
-  return { ...asToolResult({ error: { code, message: 'AroFlo tool failed.', retryable: false } }, sensitiveValues), isError: true };
+  const details = error instanceof ConnectorError
+    ? { code: error.code, message: error.message, retryable: error.retryable }
+    : { code: 'INTERNAL', message: 'AroFlo tool failed unexpectedly.', retryable: false };
+  return { ...asToolResult({ error: details }, sensitiveValues), isError: true };
 }
 
 export function invalidInputResult(): ConnectorToolResult {

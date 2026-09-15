@@ -1,5 +1,5 @@
 import { lstat, readFile, readdir } from 'node:fs/promises';
-import type { Dirent, Stats } from 'node:fs';
+import { existsSync, type Dirent, type Stats } from 'node:fs';
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -34,6 +34,7 @@ const SENSITIVE_ENVIRONMENT_KEYS = [
   'AROFLO_PENCODED',
   'AROFLO_ORG_ENCODED',
   'AROFLO_SECRET_KEY',
+  'AROFLO_HOST_IP',
   'MCP_ACCESS_TOKEN'
 ] as const;
 
@@ -51,7 +52,6 @@ export const DEFAULT_SCAN_PATHS = Object.freeze([
   '.gitignore',
   'package.json',
   'pnpm-lock.yaml',
-  'pnpm-workspace.yaml',
   'tsconfig.json',
   'vitest.config.ts',
   'README.md',
@@ -59,9 +59,17 @@ export const DEFAULT_SCAN_PATHS = Object.freeze([
   'Dockerfile'
 ] as const);
 
-export function scanPathsForCli(additionalPaths: readonly string[]): readonly string[] {
+export function scanPathsForCli(
+  additionalPaths: readonly string[],
+  workingDirectory = process.cwd()
+): readonly string[] {
   const normalizedPaths = additionalPaths[0] === '--' ? additionalPaths.slice(1) : additionalPaths;
-  return [...DEFAULT_SCAN_PATHS, ...normalizedPaths];
+  const workspacePolicy = resolve(workingDirectory, 'pnpm-workspace.yaml');
+  return [
+    ...DEFAULT_SCAN_PATHS,
+    ...(existsSync(workspacePolicy) ? [workspacePolicy] : []),
+    ...normalizedPaths
+  ];
 }
 
 const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY)|MCP_ACCESS_TOKEN)';
@@ -304,6 +312,10 @@ function currentSensitiveValues(env: NodeJS.ProcessEnv): readonly string[] {
   });
 }
 
+export function scanCurrentEnvironment(paths: readonly string[], env: NodeJS.ProcessEnv): Promise<ScanResult> {
+  return scanFiles(paths, currentSensitiveValues(env));
+}
+
 function isEntrypoint(): boolean {
   const entryPath = process.argv[1];
   return entryPath !== undefined && pathToFileURL(resolve(entryPath)).href === import.meta.url;
@@ -311,7 +323,7 @@ function isEntrypoint(): boolean {
 
 if (isEntrypoint()) {
   try {
-    const result = await scanFiles(scanPathsForCli(process.argv.slice(2)), currentSensitiveValues(process.env));
+    const result = await scanCurrentEnvironment(scanPathsForCli(process.argv.slice(2)), process.env);
     if (result.ok) {
       process.stdout.write(`PASS scanned=${result.scannedFiles}\n`);
     } else {

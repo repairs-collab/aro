@@ -8,6 +8,7 @@ import {
   scanFiles,
   scanPathsForCli
 } from '../../scripts/secret-scan.js';
+import * as secretScanner from '../../scripts/secret-scan.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -212,18 +213,61 @@ describe('secret scanner', () => {
       '.gitignore',
       'package.json',
       'pnpm-lock.yaml',
-      'pnpm-workspace.yaml',
       'tsconfig.json',
       'vitest.config.ts',
       'README.md',
       'DEPLOYMENT.md',
       'Dockerfile'
     ]));
+    expect(DEFAULT_SCAN_PATHS).not.toContain('pnpm-workspace.yaml');
     expect(DEFAULT_SCAN_PATHS).not.toContain('outputs');
   });
 
-  it('adds caller-supplied extracted archive trees to the CLI scan paths', () => {
-    expect(scanPathsForCli(['delivery-extracted'])).toEqual([
+  it('runs the default scan from a built standalone allowlisted package without a workspace file', async () => {
+    const root = await temporaryRoot();
+    const directories = ['src', 'scripts', 'tests', 'dist', 'docs', 'skills', '.codex-plugin'];
+    const files = [
+      '.mcp.json', '.env.example', '.dockerignore', '.gitignore', 'package.json', 'pnpm-lock.yaml',
+      'tsconfig.json', 'vitest.config.ts', 'README.md', 'DEPLOYMENT.md', 'Dockerfile'
+    ];
+    await Promise.all(directories.map((directory) => mkdir(join(root, directory), { recursive: true })));
+    await Promise.all(files.map((file) => writeFile(join(root, file), '', 'utf8')));
+
+    const result = await scanFiles(DEFAULT_SCAN_PATHS.map((path) => join(root, path)), []);
+
+    expect(result).toEqual({ ok: true, scannedFiles: files.length, findings: [] });
+  });
+
+  it('adds the optional workspace policy to source scans only when that file exists', async () => {
+    const sourceRoot = await temporaryRoot();
+    const standaloneRoot = await temporaryRoot();
+    await writeFile(join(sourceRoot, 'pnpm-workspace.yaml'), 'allowBuilds:\n  esbuild: true\n', 'utf8');
+
+    expect(scanPathsForCli([], sourceRoot)).toEqual([
+      ...DEFAULT_SCAN_PATHS,
+      join(sourceRoot, 'pnpm-workspace.yaml')
+    ]);
+    expect(scanPathsForCli([], standaloneRoot)).toEqual(DEFAULT_SCAN_PATHS);
+  });
+
+  it('treats AROFLO_HOST_IP as an exact current-environment sensitive value', async () => {
+    expect(secretScanner).toHaveProperty('scanCurrentEnvironment');
+    const scanCurrentEnvironment = (secretScanner as unknown as {
+      scanCurrentEnvironment(paths: readonly string[], env: NodeJS.ProcessEnv): ReturnType<typeof scanFiles>;
+    }).scanCurrentEnvironment;
+    const root = await temporaryRoot();
+    const sensitive = '198.51.100.77';
+    await writeFile(join(root, 'host.txt'), `configured host ${sensitive}`, 'utf8');
+
+    const result = await scanCurrentEnvironment([root], { AROFLO_HOST_IP: sensitive });
+
+    expect(result.findings).toEqual([{ file: 'host.txt', categories: ['sensitive-value'] }]);
+    expect(JSON.stringify(result)).not.toContain(sensitive);
+  });
+
+  it('adds caller-supplied extracted archive trees to the CLI scan paths', async () => {
+    const standaloneRoot = await temporaryRoot();
+    expect(scanPathsForCli(['delivery-extracted'], standaloneRoot)).toEqual([
       ...DEFAULT_SCAN_PATHS,
       'delivery-extracted'
     ]);
@@ -234,7 +278,7 @@ describe('secret scanner', () => {
     const secretName = ['AROFLO', 'SECRET', 'KEY'].join('_');
     await writeFile(join(root, 'config.yaml'), `${secretName}: generated-extra-path-value`, 'utf8');
 
-    const result = await scanFiles(scanPathsForCli(['--', root]), []);
+    const result = await scanFiles(scanPathsForCli(['--', root], root), []);
 
     expect(result.findings).toEqual([{
       file: 'config.yaml',
@@ -246,7 +290,7 @@ describe('secret scanner', () => {
     const root = await temporaryRoot();
     const missing = join(root, 'missing-extracted-archive');
 
-    const result = await scanFiles(scanPathsForCli(['--', missing]), []);
+    const result = await scanFiles(scanPathsForCli(['--', missing], root), []);
 
     expect(result.findings).toEqual([{
       file: 'missing-extracted-archive',

@@ -35,12 +35,16 @@ describe('AroFlo request signing', () => {
   it('uses the injected UTC clock and includes HostIP only when configured in headers', () => {
     expect(signedHeaders(credentials, 'GET', varString, new Date(timestamp))).toEqual({
       Authentication: `HMAC ${digest}`,
+      Authorization: authorization,
+      Accept: 'text/json',
       afdatetimeutc: timestamp
     });
 
     expect(
       signedHeaders({ ...credentials, hostIp: '203.0.113.50' }, 'GET', varString, new Date(timestamp))
     ).toMatchObject({
+      Authorization: authorization,
+      Accept: 'text/json',
       afdatetimeutc: timestamp,
       HostIP: '203.0.113.50'
     });

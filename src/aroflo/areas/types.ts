@@ -64,7 +64,7 @@ export function publicFields(definitions: Readonly<Record<string, FieldInput>>):
 
 export function filterFields(
   names: readonly string[],
-  operators: readonly FilterOperator[] = ['eq', 'ne', 'lt', 'gt', 'contains']
+  operators: readonly FilterOperator[] = ['eq', 'ne', 'lt', 'lte', 'gt', 'gte', 'contains']
 ): Readonly<Record<string, readonly FilterOperator[]>> {
   const filters = Object.create(null) as Record<string, readonly FilterOperator[]>;
   for (const name of names) filters[name] = Object.freeze([...operators]);

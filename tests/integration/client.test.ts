@@ -26,6 +26,7 @@ const config: AppConfig = {
   requestTimeoutMs: 100
 };
 const fixedNow = () => new Date('2026-09-10T00:00:00.000Z');
+const expectedAuthorization = 'uencoded=fake-user&pencoded=fake-key&orgEncoded=fake-org';
 const expectedAuthentication = `HMAC ${[
   'ddd999915c97a5c450ec31bbfa049358b07f0e673c78d49b0b7b6f7166bb3de1',
   'b9deb7b20884eee4f80ae090bb37ddf7cbbca9fc8b6829b3090dc300d41b70e9'
@@ -58,6 +59,8 @@ describe('AroFloClient wire contract', () => {
     });
     expect(server.requests[0]?.headers).toMatchObject({
       authentication: expectedAuthentication,
+      authorization: expectedAuthorization,
+      accept: 'text/json',
       afdatetimeutc: '2026-09-10T00:00:00.000Z'
     });
     expect(result.records).toEqual([{ taskid: 'task-1', taskname: 'Fake task' }]);
@@ -98,7 +101,7 @@ describe('AroFloClient wire contract', () => {
 
     expect(server.requests.map((request) => request.url)).toEqual([
       '/?zone=tasks&where=and%7Ctaskid%7C%3D%7CA%26B&join=notes&page=1&pageSize=1',
-      '/?zone=tasks&lastupdate=2026-09-10T01%3A02%3A03Z&page=2&pageSize=50'
+      '/?zone=lastupdate&where=and%7Czonename%7C%3D%7Ctasks&where=and%7Clastupdateutc%7C%3E%7C2026-09-10T01%3A02%3A03Z&order=lastupdateutc%7Casc&page=2&pageSize=50'
     ]);
   });
 
@@ -186,6 +189,18 @@ describe('AroFloClient wire contract', () => {
 });
 
 describe('AroFloClient failures and retries', () => {
+  it('rejects an HTTP-200 body that omits the required AroFlo status', async () => {
+    const server = await fakeServer();
+    server.queue({ body: { zoneresponse: { tasks: [] } } });
+    const client = new AroFloClient({ config, baseUrl: server.baseUrl, now: fixedNow });
+
+    await expect(client.search({ area: 'tasks' })).rejects.toMatchObject({
+      code: 'MALFORMED_RESPONSE',
+      retryable: false
+    });
+    expect(server.requests).toHaveLength(1);
+  });
+
   it('turns HTTP-200 body failures into sanitized stable errors', async () => {
     const server = await fakeServer();
     server.queue({ body: await fixture('body-error.json') });
@@ -445,7 +460,7 @@ describe('AroFloClient failures and retries', () => {
 
     await expect(client.post('tasks', '<tasks><task>fake & value</task></tasks>')).rejects.toMatchObject({
       code: 'UPSTREAM',
-      retryable: true
+      retryable: false
     });
     expect(server.requests).toHaveLength(1);
     expect(server.requests[0]).toMatchObject({

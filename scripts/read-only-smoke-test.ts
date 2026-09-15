@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { AroFloClient, type AroFloPage } from '../src/aroflo/client.js';
 import { loadConfig, type AppConfig } from '../src/config.js';
 import { ConnectorError } from '../src/aroflo/errors.js';
+import { redact } from '../src/redaction.js';
 
 interface ReadOnlyClient {
   search(input: {
@@ -65,18 +66,38 @@ function isEntrypoint(): boolean {
   return entryPath !== undefined && pathToFileURL(resolve(entryPath)).href === import.meta.url;
 }
 
-function failureCode(error: unknown): string {
-  if (error instanceof ConnectorError) return error.code;
-  if (error instanceof Error && error.message.startsWith('Read-only smoke test refused:')) return 'WRITE_FLAGS_ENABLED';
-  if (error instanceof Error && error.message.startsWith('Missing required environment variables:')) return 'CONFIGURATION';
-  return 'UNEXPECTED';
+export function formatSmokeFailure(error: unknown, env: NodeJS.ProcessEnv): string {
+  let code = 'UNEXPECTED';
+  let message = 'Unexpected smoke-test failure.';
+  let retryable = false;
+  if (error instanceof ConnectorError) {
+    code = error.code;
+    message = error.message;
+    retryable = error.retryable;
+  } else if (error instanceof Error && error.message.startsWith('Read-only smoke test refused:')) {
+    code = 'WRITE_FLAGS_ENABLED';
+    message = error.message;
+  } else if (error instanceof Error && error.message.startsWith('Missing required environment variables:')) {
+    code = 'CONFIGURATION';
+    message = error.message;
+  }
+  const sensitiveValues = [
+    env.AROFLO_UENCODED,
+    env.AROFLO_PENCODED,
+    env.AROFLO_ORG_ENCODED,
+    env.AROFLO_SECRET_KEY,
+    env.AROFLO_HOST_IP,
+    env.MCP_ACCESS_TOKEN
+  ].filter((value): value is string => value !== undefined && value.length > 0);
+  const safeMessage = String(redact(message, sensitiveValues)).replace(/[\r\n]+/g, ' ').slice(0, 500);
+  return `FAIL code=${code} retryable=${retryable} message=${JSON.stringify(safeMessage)}`;
 }
 
 if (isEntrypoint()) {
   try {
     await runReadOnlySmoke(process.env);
   } catch (error) {
-    process.stderr.write(`FAIL code=${failureCode(error)}\n`);
+    process.stderr.write(`${formatSmokeFailure(error, process.env)}\n`);
     process.exitCode = 1;
   }
 }

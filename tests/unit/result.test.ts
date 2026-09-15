@@ -23,8 +23,34 @@ describe('tool result serialization', () => {
     expect(() => asToolResult(input)).toThrow('MCP output key collision');
     expect(asToolError(new ConnectorError('RESPONSE_TOO_LARGE', 'MCP output key collision'))).toEqual(expect.objectContaining({
       isError: true,
-      structuredContent: { error: expect.objectContaining({ code: 'RESPONSE_TOO_LARGE', message: 'AroFlo tool failed.' }) }
+      structuredContent: { error: expect.objectContaining({ code: 'RESPONSE_TOO_LARGE', message: 'MCP output key collision' }) }
     }));
+  });
+
+  it('returns controlled actionable sanitized connector details and accurate retryability', () => {
+    const result = asToolError(
+      new ConnectorError('TIMEOUT', 'AroFlo request timed out for fake-secret', true),
+      ['fake-secret']
+    );
+
+    expect(result).toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: 'AroFlo request timed out for [REDACTED]' }],
+      structuredContent: {
+        error: {
+          code: 'TIMEOUT',
+          message: 'AroFlo request timed out for [REDACTED]',
+          retryable: true
+        }
+      }
+    });
+    expect(JSON.stringify(result)).not.toContain('fake-secret');
+
+    const unexpected = asToolError(new Error('private upstream body'));
+    expect(unexpected.structuredContent).toEqual({
+      error: { code: 'INTERNAL', message: 'AroFlo tool failed unexpectedly.', retryable: false }
+    });
+    expect(JSON.stringify(unexpected)).not.toContain('private upstream body');
   });
 
   it('bounds own sparse-array values without serializing inherited numeric data', () => {

@@ -83,6 +83,22 @@ describe('AroFlo area registry', () => {
     expect(encodePairs(pairs)).toContain('Job%20%26%20Co');
   });
 
+  it('emits the supported inclusive comparison operators without raw query access', () => {
+    expect(compileReadQuery({
+      area: 'schedules',
+      filters: [
+        { field: 'startdate', operator: 'gte', value: '2026/09/10' },
+        { field: 'startdate', operator: 'lte', value: '2026/09/11' }
+      ]
+    })).toEqual([
+      ['zone', 'schedules'],
+      ['where', 'and|startdate|>=|2026/09/10'],
+      ['where', 'and|startdate|<=|2026/09/11'],
+      ['page', 1],
+      ['pageSize', 100]
+    ]);
+  });
+
   it('rejects unsupported input and never reflects unsafe fragments in validation errors', () => {
     const unsafe = 'bad&zone=users';
     const cases = [

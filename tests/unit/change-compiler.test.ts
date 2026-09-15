@@ -142,6 +142,34 @@ describe('AroFlo structured change compiler', () => {
     expect(compiled.postXml).not.toContain(XML_TEXT);
   });
 
+  it.each([
+    ['null', '\u0000'],
+    ['vertical tab', '\u000b'],
+    ['unit separator', '\u001f'],
+    ['lone high surrogate', '\ud800'],
+    ['lone low surrogate', '\udc00'],
+    ['noncharacter FFFE', '\ufffe'],
+    ['noncharacter FFFF', '\uffff']
+  ])('rejects XML 1.0-invalid %s characters before preview or compilation', (_name, invalidCharacter) => {
+    const input = {
+      area: 'tasks' as const,
+      operation: 'update' as const,
+      id: 'task-1',
+      fields: { taskname: `before${invalidCharacter}after` }
+    };
+
+    expect(() => changeCompiler.previewChange(input)).toThrow(INVALID_MESSAGE);
+    expect(() => changeCompiler.compileChange(input)).toThrow(INVALID_MESSAGE);
+    expect(() => changeCompiler.compileChange({ ...input, id: `task${invalidCharacter}1`, fields: { taskname: 'valid' } }))
+      .toThrow(INVALID_MESSAGE);
+  });
+
+  it('accepts valid supplementary Unicode XML text', () => {
+    expect(changeCompiler.compileChange({
+      area: 'tasks', operation: 'update', id: 'task-1', fields: { taskname: 'Valid \ud83d\ude00 text' }
+    }).postXml).toContain('<taskname>Valid \ud83d\ude00 text</taskname>');
+  });
+
   it.each(operationCases)('rejects every forbidden control key for $name', ({ input }) => {
     for (const key of ['postxml', 'xml', 'zone', 'delete', 'archive']) {
       expect(() => changeCompiler.compileChange({

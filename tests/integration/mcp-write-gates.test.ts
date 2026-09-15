@@ -168,7 +168,10 @@ describe('MCP write discovery gates', () => {
         arguments: { area: 'tasks', id: 'task-1', fields: { status: 'Pending' } }
       });
 
-      expect(result).toMatchObject({ isError: true, structuredContent: { error: { code: 'UPSTREAM' } } });
+      expect(result).toMatchObject({
+        isError: true,
+        structuredContent: { error: { code: 'UPSTREAM', retryable: false } }
+      });
       expect(JSON.stringify(result)).not.toContain('fake-secret');
       expect(service.requests).toHaveLength(1);
       expect(service.requests[0]?.method).toBe('POST');

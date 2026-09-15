@@ -62,9 +62,13 @@ function isSupportedScalar(value: unknown, field: FieldDefinition): boolean {
   if (field.type === 'number') return typeof value === 'number' && Number.isFinite(value);
   if (field.type === 'boolean') return typeof value === 'boolean';
   if (field.type === 'date' || field.type === 'datetime') {
-    return typeof value === 'string' && isValidMutationDate(value, field);
+    return typeof value === 'string' && isValidXmlText(value) && isValidMutationDate(value, field);
   }
-  return typeof value === 'string';
+  return typeof value === 'string' && isValidXmlText(value);
+}
+
+function isValidXmlText(value: string): boolean {
+  return /^[\u0009\u000a\u000d\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]*$/u.test(value);
 }
 
 function isValidMutationDate(value: string, field: FieldDefinition): boolean {
