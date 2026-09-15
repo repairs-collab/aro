@@ -1,1 +1,10 @@
-export {};
+export { AroFloClient } from './aroflo/client.js';
+export type { AroFloClientOptions, AroFloPage, RateBudget } from './aroflo/client.js';
+export { AREA_DEFINITIONS, compileReadQuery, describeArea, getAreaDefinition } from './aroflo/area-registry.js';
+export { compileChange, previewChange } from './aroflo/change-compiler.js';
+export type { ChangeInput, ChangeOperation, ChangePreview, CompiledChange } from './aroflo/change-compiler.js';
+export { ConnectorError, RateBudgetExceededError } from './aroflo/errors.js';
+export { AREAS, canWriteArea, loadConfig } from './config.js';
+export type { AppConfig, Area, AroFloCredentials } from './config.js';
+export { buildMcpServer } from './mcp/build-server.js';
+export type { ConnectorServerOptions } from './mcp/build-server.js';

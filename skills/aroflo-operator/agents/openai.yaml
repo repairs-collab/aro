@@ -1,0 +1,4 @@
+interface:
+  display_name: "AroFlo Operator"
+  short_description: "Operate AroFlo tools with safety gates"
+  default_prompt: "Use $aroflo-operator to inspect AroFlo data or prepare a safely confirmed change."

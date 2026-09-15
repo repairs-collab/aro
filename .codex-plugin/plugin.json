@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "description": "Safely access AroFlo records through local or hosted MCP.",
   "author": {
-    "name": "Codex"
+    "name": "Swan Hill Appliance Repairs Pty Ltd"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Aroflo Connector",
     "shortDescription": "Safely access AroFlo records through MCP.",
     "longDescription": "Safely access AroFlo records through local or hosted MCP.",
-    "developerName": "Codex",
+    "developerName": "Swan Hill Appliance Repairs Pty Ltd",
     "category": "Productivity",
     "capabilities": [],
     "defaultPrompt": "Help me access AroFlo records safely."

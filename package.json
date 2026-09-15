@@ -11,8 +11,8 @@
     "test:watch": "vitest",
     "start:stdio": "node dist/src/transports/stdio.js",
     "start:http": "node dist/src/transports/http.js",
-    "smoke:read-only": "tsx scripts/read-only-smoke-test.ts",
-    "scan:secrets": "tsx scripts/secret-scan.ts"
+    "smoke:read-only": "tsc -p tsconfig.json && node dist/scripts/read-only-smoke-test.js",
+    "scan:secrets": "tsc -p tsconfig.json && node dist/scripts/secret-scan.js"
   },
   "dependencies": {
     "@modelcontextprotocol/node": "2.0.0",

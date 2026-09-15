@@ -1,0 +1,173 @@
+[
+  {
+    "name": "create task",
+    "input": {
+      "area": "tasks",
+      "operation": "create",
+      "fields": {
+        "taskname": "Fix & <sink> \"soon\" 'please'",
+        "tasktype.tasktypeid": "type-1",
+        "client.clientid": "client-1",
+        "org.orgid": "org-1",
+        "duedate": "2026/09/11"
+      }
+    },
+    "postXml": "<tasks><task><org><orgid>org-1</orgid></org><client><clientid>client-1</clientid></client><tasktype><tasktypeid>type-1</tasktypeid></tasktype><taskname>Fix &amp; &lt;sink&gt; &quot;soon&quot; &apos;please&apos;</taskname><duedate>2026/09/11</duedate></task></tasks>",
+    "changedFields": ["org.orgid", "client.clientid", "tasktype.tasktypeid", "taskname", "duedate"]
+  },
+  {
+    "name": "update task",
+    "input": {
+      "area": "tasks",
+      "operation": "update",
+      "id": "task-1",
+      "fields": { "status": "Pending", "taskname": "Fix tap" }
+    },
+    "postXml": "<tasks><task><taskid>task-1</taskid><taskname>Fix tap</taskname><status>Pending</status></task></tasks>",
+    "changedFields": ["taskname", "status"]
+  },
+  {
+    "name": "create client",
+    "input": {
+      "area": "clients",
+      "operation": "create",
+      "fields": {
+        "orgs.org.orgid": "org-1",
+        "surname": "Doe",
+        "firstname": "Jane",
+        "clientname": "Example Client"
+      }
+    },
+    "postXml": "<clients><client><clientname>Example Client</clientname><firstname>Jane</firstname><surname>Doe</surname><orgs><org><orgid>org-1</orgid></org></orgs></client></clients>",
+    "changedFields": ["clientname", "firstname", "surname", "orgs.org.orgid"]
+  },
+  {
+    "name": "update client",
+    "input": {
+      "area": "clients",
+      "operation": "update",
+      "id": "client-1",
+      "fields": { "phone": "03 1234 5678" }
+    },
+    "postXml": "<clients><client><clientid>client-1</clientid><phone>03 1234 5678</phone></client></clients>",
+    "changedFields": ["phone"]
+  },
+  {
+    "name": "update invoice",
+    "input": {
+      "area": "invoices",
+      "operation": "update",
+      "id": "invoice-1",
+      "fields": { "status": "processed", "description": "Paid" }
+    },
+    "postXml": "<invoices><invoice><invoiceid>invoice-1</invoiceid><description>Paid</description><status>processed</status></invoice></invoices>",
+    "changedFields": ["description", "status"]
+  },
+  {
+    "name": "create schedule",
+    "input": {
+      "area": "schedules",
+      "operation": "create",
+      "fields": {
+        "startdatetime": "2026/09/11 07:00:00",
+        "scheduledto.scheduledtotype": "user",
+        "scheduledto.scheduledtoid": "user-1",
+        "enddatetime": "2026/09/11 09:00:00",
+        "note": "Morning visit",
+        "enddate": "2026/09/11",
+        "insertedby.userid": "user-2",
+        "startdate": "2026/09/11",
+        "scheduletype.type": "task",
+        "scheduletype.typeid": "type-1"
+      }
+    },
+    "postXml": "<schedules><schedule><scheduletype><typeid>type-1</typeid><type>task</type></scheduletype><startdate>2026/09/11</startdate><insertedby><userid>user-2</userid></insertedby><enddate>2026/09/11</enddate><note>Morning visit</note><enddatetime>2026/09/11 09:00:00</enddatetime><scheduledto><scheduledtoid>user-1</scheduledtoid><scheduledtotype>user</scheduledtotype></scheduledto><startdatetime>2026/09/11 07:00:00</startdatetime></schedule></schedules>",
+    "changedFields": ["scheduletype.typeid", "scheduletype.type", "startdate", "insertedby.userid", "enddate", "note", "enddatetime", "scheduledto.scheduledtoid", "scheduledto.scheduledtotype", "startdatetime"]
+  },
+  {
+    "name": "create user",
+    "input": {
+      "area": "users",
+      "operation": "create",
+      "fields": {
+        "org.orgid": "org-1",
+        "accesstype": "Use Permission Groups",
+        "password": "private-password",
+        "username": "jane.doe",
+        "surname": "Doe",
+        "givennames": "Jane"
+      }
+    },
+    "postXml": "<users><user><givennames>Jane</givennames><surname>Doe</surname><username>jane.doe</username><password>private-password</password><accesstype>Use Permission Groups</accesstype><org><orgid>org-1</orgid></org></user></users>",
+    "changedFields": ["givennames", "surname", "username", "password", "accesstype", "org.orgid"]
+  },
+  {
+    "name": "update user",
+    "input": {
+      "area": "users",
+      "operation": "update",
+      "id": "user-1",
+      "fields": { "mobile": "0400 000 000" }
+    },
+    "postXml": "<users><user><userid>user-1</userid><mobile>0400 000 000</mobile></user></users>",
+    "changedFields": ["mobile"]
+  },
+  {
+    "name": "create asset",
+    "input": {
+      "area": "assets",
+      "operation": "create",
+      "fields": {
+        "datecreated": "2026/09/11",
+        "category.categoryid": "category-1",
+        "manufacturer": "Example Co",
+        "assetname": "Heat pump"
+      }
+    },
+    "postXml": "<assets><asset><assetname>Heat pump</assetname><manufacturer>Example Co</manufacturer><category><categoryid>category-1</categoryid></category><datecreated>2026/09/11</datecreated></asset></assets>",
+    "changedFields": ["assetname", "manufacturer", "category.categoryid", "datecreated"]
+  },
+  {
+    "name": "update asset",
+    "input": {
+      "area": "assets",
+      "operation": "update",
+      "id": "asset-1",
+      "fields": { "location.locationid": "location-1" }
+    },
+    "postXml": "<assets><asset><assetid>asset-1</assetid><location><locationid>location-1</locationid></location></asset></assets>",
+    "changedFields": ["location.locationid"]
+  },
+  {
+    "name": "create inventory item",
+    "input": {
+      "area": "inventory",
+      "operation": "create",
+      "fields": {
+        "category.categoryid": "category-1",
+        "sellsimple": 35,
+        "costex": 10,
+        "manufacturer": "Example Co",
+        "description": "Cable",
+        "partnumber": "ABC-123"
+      }
+    },
+    "postXml": "<items><item><partnumber>ABC-123</partnumber><description>Cable</description><manufacturer>Example Co</manufacturer><costex>10</costex><sellsimple>35</sellsimple><category><categoryid>category-1</categoryid></category></item></items>",
+    "changedFields": ["partnumber", "description", "manufacturer", "costex", "sellsimple", "category.categoryid"]
+  },
+  {
+    "name": "update inventory item",
+    "input": {
+      "area": "inventory",
+      "operation": "update",
+      "id": "item-1",
+      "fields": {
+        "stocklevels.stocklevel.movequantity": 20,
+        "stocklevels.stocklevel.assignedtotype": "org",
+        "stocklevels.stocklevel.assignedtoid": "org-1"
+      }
+    },
+    "postXml": "<items><item><itemid>item-1</itemid><stocklevels><stocklevel><assignedtoid>org-1</assignedtoid><assignedtotype>org</assignedtotype><movequantity>20</movequantity></stocklevel></stocklevels></item></items>",
+    "changedFields": ["stocklevels.stocklevel.assignedtoid", "stocklevels.stocklevel.assignedtotype", "stocklevels.stocklevel.movequantity"]
+  }
+]

@@ -11,4 +11,17 @@ describe('plugin scaffold', () => {
     expect(sample).toContain('AROFLO_WRITE_ENABLED=false');
     expect(sample).not.toMatch(/AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY)=\S+/);
   });
+
+  it('provides an intentional side-effect-free public connector entry point', async () => {
+    const connector = await import('../../src/index.js');
+
+    expect(Object.keys(connector)).toEqual(expect.arrayContaining([
+      'AroFloClient',
+      'buildMcpServer',
+      'compileChange',
+      'describeArea',
+      'loadConfig',
+      'previewChange'
+    ]));
+  });
 });
