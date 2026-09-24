@@ -2,6 +2,8 @@
 
 This plugin gives Codex and compatible ChatGPT clients structured AroFlo access over MCP. It supports local Windows stdio and provider-neutral hosted HTTP from the same codebase. Reads are always available; create and update tools are built in but absent unless their safety gates are enabled.
 
+Invoice API v2 support targets AroFlo's open beta API and may need adjustment as that upstream contract evolves. Use the exact `aroflo_v2` tool prefix. Never use `arfoflo_v2`; it is a typo.
+
 > **Credential safety:** AroFlo credentials were shared during initial setup. Rotate them after the first private connection check and before any public hosting. Never place credentials in this repository, MCP configuration, logs, images, or archives.
 
 ## Prerequisites
@@ -22,6 +24,8 @@ Set secrets in the environment or a deployment provider's secret store. `.mcp.js
 | `AROFLO_ORG_ENCODED` | Yes | Issued encoded organization value |
 | `AROFLO_SECRET_KEY` | Yes | Issued API signing secret |
 | `AROFLO_HOST_IP` | No | Optional fixed source IP included in signing; leave unset unless AroFlo requires it |
+| `AROFLO_V2_API_TOKEN` | For API v2 | Bearer token for the Invoice API v2 tools and smoke check |
+| `AROFLO_V2_SMOKE_BUSINESS_UNIT_ID` | No | Optional business unit for the bounded v2 invoice smoke reads |
 | `AROFLO_WRITE_ENABLED` | No | Exact `true` enables the ordinary write gate; default `false` |
 | `AROFLO_WRITABLE_AREAS` | No | Comma-separated allowlist of writable areas; default empty |
 | `AROFLO_FINANCIAL_WRITES_ENABLED` | No | Exact `true` adds the invoice gate; default `false` |
@@ -62,8 +66,19 @@ The secret scanner reads UTF-8 plus BOM-marked UTF-16LE/BE text. It fails closed
 | `aroflo_preview_change` | Always; local validation only |
 | `aroflo_create_record` | Appears jointly with update when any allowed write operation is enabled |
 | `aroflo_update_record` | Appears jointly with create when any allowed write operation is enabled |
+| `aroflo_v2_connection_status` | With `AROFLO_V2_API_TOKEN`; v2 healthcheck |
+| `aroflo_v2_list_invoices` | With `AROFLO_V2_API_TOKEN`; bounded invoice list |
+| `aroflo_v2_get_invoice` | With `AROFLO_V2_API_TOKEN`; one invoice |
+| `aroflo_v2_get_invoice_default_recipients` | With `AROFLO_V2_API_TOKEN`; default recipients |
+| `aroflo_v2_list_invoice_line_items` | With `AROFLO_V2_API_TOKEN`; bounded line list |
+| `aroflo_v2_preview_create_invoice` | With `AROFLO_V2_API_TOKEN`; preview only, never writes |
+| `aroflo_v2_preview_update_invoice_line_item` | With `AROFLO_V2_API_TOKEN`; preview only, never writes |
+| `aroflo_v2_create_invoice` | Only when all invoice write gates pass; consumes one exact confirmation |
+| `aroflo_v2_update_invoice_line_item` | Only when all invoice write gates pass; consumes one exact confirmation |
 
 There is no delete or archive capability. Raw query strings and raw XML are never accepted from callers.
+
+The supported API v2 mutation boundary is deliberately narrow: create one invoice or update one existing invoice line item, each only after its matching preview and explicit confirmation. Delete, send, approve, payment, add-line, remove-line, and other invoice mutations are not supported. Preview tools require a v2 token but are non-writing. Execution tools additionally require both write gates (`AROFLO_WRITE_ENABLED=true` and `AROFLO_FINANCIAL_WRITES_ENABLED=true`) plus `invoices` in `AROFLO_WRITABLE_AREAS`.
 
 When any enabled writable operation exists, both `aroflo_create_record` and `aroflo_update_record` appear together in discovery. Each selected area still validates whether create or update is supported before any request.
 
@@ -76,6 +91,14 @@ pnpm smoke:read-only
 ```
 
 The command refuses to start if either flag is exactly `true`. It performs only three small reads: connection status, one task, and one client. Output contains only PASS/failure codes, connection state, and counts, not records, requests, or environment values.
+
+For the separate API v2 check, configure `AROFLO_V2_API_TOKEN` and run:
+
+```powershell
+pnpm smoke:v2-read-only
+```
+
+`AROFLO_V2_SMOKE_BUSINESS_UNIT_ID` is optional. Without it, the command stops after `GET /v2/healthcheck`. With it, the command lists at most one invoice and, when one is present, reads that invoice's details, recipients, and lines. Every request is GET-only, and output is a status summary without tokens or invoice/customer bodies.
 
 ## Enabling and rolling back writes
 

@@ -265,6 +265,21 @@ describe('secret scanner', () => {
     expect(JSON.stringify(result)).not.toContain(sensitive);
   });
 
+  it('treats AROFLO_V2_API_TOKEN as an exact current-environment sensitive value', async () => {
+    expect(secretScanner).toHaveProperty('scanCurrentEnvironment');
+    const scanCurrentEnvironment = (secretScanner as unknown as {
+      scanCurrentEnvironment(paths: readonly string[], env: NodeJS.ProcessEnv): ReturnType<typeof scanFiles>;
+    }).scanCurrentEnvironment;
+    const root = await temporaryRoot();
+    const sensitive = 'generated-v2-api-sensitive-value';
+    await writeFile(join(root, 'v2-token.txt'), `configured token ${sensitive}`, 'utf8');
+
+    const result = await scanCurrentEnvironment([root], { AROFLO_V2_API_TOKEN: sensitive });
+
+    expect(result.findings).toEqual([{ file: 'v2-token.txt', categories: ['sensitive-value'] }]);
+    expect(JSON.stringify(result)).not.toContain(sensitive);
+  });
+
   it('adds caller-supplied extracted archive trees to the CLI scan paths', async () => {
     const standaloneRoot = await temporaryRoot();
     expect(scanPathsForCli(['delivery-extracted'], standaloneRoot)).toEqual([

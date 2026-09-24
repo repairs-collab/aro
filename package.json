@@ -1,6 +1,6 @@
 {
   "name": "aroflo-connector",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": { "node": ">=20" },
@@ -12,6 +12,7 @@
     "start:stdio": "node dist/src/transports/stdio.js",
     "start:http": "node dist/src/transports/http.js",
     "smoke:read-only": "tsc -p tsconfig.json && node dist/scripts/read-only-smoke-test.js",
+    "smoke:v2-read-only": "tsc -p tsconfig.json && node dist/scripts/v2-read-only-smoke-test.js",
     "scan:secrets": "tsc -p tsconfig.json && node dist/scripts/secret-scan.js"
   },
   "dependencies": {
