@@ -124,34 +124,50 @@ describe('secret scanner', () => {
     }]);
   });
 
-  it('detects populated credential assignments in JSON and quoted or unquoted YAML for every secret name', async () => {
-    const root = await temporaryRoot();
+  it('detects every populated credential name across text, JSON, and YAML while allowing safe samples', async () => {
     const credentialNames = [
       ['AROFLO', 'UENCODED'].join('_'),
       ['AROFLO', 'PENCODED'].join('_'),
       ['AROFLO', 'ORG', 'ENCODED'].join('_'),
       ['AROFLO', 'SECRET', 'KEY'].join('_'),
+      ['AROFLO', 'V2', 'API', 'TOKEN'].join('_'),
       ['MCP', 'ACCESS', 'TOKEN'].join('_')
     ];
-    await writeFile(
-      join(root, 'config.json'),
-      JSON.stringify(Object.fromEntries(credentialNames.map((name, index) => [name, `generated-json-${index}`]))),
-      'utf8'
-    );
-    await writeFile(
-      join(root, 'config.yaml'),
-      credentialNames.map((name, index) => index % 2 === 0
-        ? `"${name}": "generated-yaml-${index}"`
-        : `${name}: generated-yaml-${index}`).join('\n'),
-      'utf8'
-    );
 
-    const result = await scanFiles([root], []);
+    for (const [index, credentialName] of credentialNames.entries()) {
+      const root = await temporaryRoot();
+      await writeFile(join(root, 'assignment.txt'), `${credentialName}=generated-text-${index}`, 'utf8');
+      await writeFile(
+        join(root, 'config.json'),
+        JSON.stringify({ [credentialName]: `generated-json-${index}` }),
+        'utf8'
+      );
+      await writeFile(
+        join(root, 'quoted.yaml'),
+        `"${credentialName}": "generated-quoted-yaml-${index}"`,
+        'utf8'
+      );
+      await writeFile(
+        join(root, 'unquoted.yaml'),
+        `${credentialName}: generated-unquoted-yaml-${index}`,
+        'utf8'
+      );
+      await writeFile(join(root, '.env.example'), `${credentialName}=\n`, 'utf8');
+      await writeFile(
+        join(root, 'sample.json'),
+        JSON.stringify({ [credentialName]: 'fake-token' }),
+        'utf8'
+      );
 
-    expect(result.findings).toEqual([
-      { file: 'config.json', categories: ['populated-credential'] },
-      { file: 'config.yaml', categories: ['populated-credential'] }
-    ]);
+      const result = await scanFiles([root], []);
+
+      expect(result.findings, credentialName).toEqual([
+        { file: 'assignment.txt', categories: ['populated-credential'] },
+        { file: 'config.json', categories: ['populated-credential'] },
+        { file: 'quoted.yaml', categories: ['populated-credential'] },
+        { file: 'unquoted.yaml', categories: ['populated-credential'] }
+      ]);
+    }
   });
 
   it('does not exempt secret-looking values merely because they begin with test or private', async () => {

@@ -73,7 +73,7 @@ export function scanPathsForCli(
   ];
 }
 
-const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY)|MCP_ACCESS_TOKEN)';
+const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY|V2_API_TOKEN)|MCP_ACCESS_TOKEN)';
 const credentialEqualsAssignment = new RegExp(
   `\\b${CREDENTIAL_NAME}\\b[ \\t]*=(?!=)[ \\t]*(?:"([^"\\r\\n]+)"|'([^'\\r\\n]+)'|([^\\s#;=]+))`,
   'gi'
