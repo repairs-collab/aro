@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../src/config.js';
 import { AroFloClient } from '../../src/aroflo/client.js';
 import { ConnectorError, RateBudgetExceededError } from '../../src/aroflo/errors.js';
@@ -154,6 +154,29 @@ describe('AroFloClient wire contract', () => {
     await expect(client.search({ area: 'tasks' })).resolves.toMatchObject({
       rateBudget: { secondRemaining: 0, minuteRemaining: 59, dailyUsed: 42, dailySoftLimit: 1_900 }
     });
+  });
+
+  it('uses an injected request budget for legacy GETs and reports its daily values', async () => {
+    const server = await fakeServer();
+    server.queue({ body: await fixture('read-success.json') });
+    const requestBudget = {
+      acquire: vi.fn(async () => undefined),
+      getDailyUsed: vi.fn(() => 7),
+      getDailyLimit: vi.fn(() => 1900)
+    };
+    const client = new AroFloClient({
+      config,
+      baseUrl: server.baseUrl,
+      now: fixedNow,
+      requestBudget
+    });
+
+    await expect(client.search({ area: 'tasks' })).resolves.toMatchObject({
+      rateBudget: { dailyUsed: 7, dailySoftLimit: 1900 }
+    });
+    expect(requestBudget.acquire).toHaveBeenCalledOnce();
+    expect(requestBudget.getDailyUsed).toHaveBeenCalledOnce();
+    expect(requestBudget.getDailyLimit).toHaveBeenCalledOnce();
   });
 
   it('accepts the official status-zero body and nested paging fields', async () => {

@@ -6,7 +6,7 @@ import { signedHeaders } from './auth.js';
 import { TimedCache } from './cache.js';
 import { ConnectorError, type ConnectorErrorCode } from './errors.js';
 import { encodePairs, type EncodedPair } from './query.js';
-import { DEFAULT_RATE_LIMITS, RateLimiter, type RateLimits } from './rate-limiter.js';
+import { DEFAULT_RATE_LIMITS, RateLimiter, type RateLimits, type RequestBudget } from './rate-limiter.js';
 
 export type { FilterInput, SearchInput } from './areas/types.js';
 
@@ -35,6 +35,7 @@ export interface AroFloClientOptions {
   baseUrl?: string;
   /** Test-only override for exercising budget boundaries quickly. */
   rateLimits?: RateLimits;
+  requestBudget?: RequestBudget;
 }
 
 interface NormalizedBody {
@@ -95,7 +96,7 @@ export class AroFloClient {
   private readonly random: () => number;
   private readonly baseUrl: string;
   private readonly cache: TimedCache<AroFloPage>;
-  private readonly limiter: RateLimiter;
+  private readonly limiter: RequestBudget;
 
   constructor(options: AroFloClientOptions) {
     this.config = options.config;
@@ -105,7 +106,7 @@ export class AroFloClient {
     this.random = options.random ?? Math.random;
     this.baseUrl = options.baseUrl ?? 'https://api.aroflo.com/';
     this.cache = new TimedCache(CACHE_TTL_MS, () => this.now().getTime());
-    this.limiter = new RateLimiter({
+    this.limiter = options.requestBudget ?? new RateLimiter({
       now: this.now,
       sleep: this.sleep,
       limits: options.rateLimits ?? { ...DEFAULT_RATE_LIMITS }
