@@ -2,6 +2,25 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('plugin scaffold', () => {
+  it('runs release checks from verified built artifacts without invoking the compiler', async () => {
+    const pkg = JSON.parse(await readFile('package.json', 'utf8'));
+    const releaseChecks = {
+      'smoke:read-only': pkg.scripts['smoke:read-only'],
+      'smoke:v2-read-only': pkg.scripts['smoke:v2-read-only'],
+      'scan:secrets': pkg.scripts['scan:secrets']
+    };
+
+    expect(releaseChecks).toEqual({
+      'smoke:read-only': 'node dist/scripts/read-only-smoke-test.js',
+      'smoke:v2-read-only': 'node dist/scripts/v2-read-only-smoke-test.js',
+      'scan:secrets': 'node dist/scripts/secret-scan.js'
+    });
+    expect(Object.values(releaseChecks).every((command) => !/\btsc\b/.test(command))).toBe(true);
+    expect(pkg.scripts.build).toBe('tsc -p tsconfig.json');
+    expect(pkg.scripts.typecheck).toBe('tsc -p tsconfig.json --noEmit');
+    expect(pkg.version).toBe('0.2.0');
+  });
+
   it('pins the runtime and contains no populated secret defaults', async () => {
     const pkg = JSON.parse(await readFile('package.json', 'utf8'));
     const plugin = JSON.parse(await readFile('.codex-plugin/plugin.json', 'utf8'));
