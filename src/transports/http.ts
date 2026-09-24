@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
-import { AroFloClient } from '../aroflo/client.js';
 import { loadConfig, normalizeConfiguredBindHost, normalizeRequestHost, type AppConfig } from '../config.js';
 import { buildMcpServer } from '../mcp/build-server.js';
+import { createToolDependencies } from '../mcp/dependencies.js';
 import { redact } from '../redaction.js';
 
 const CONNECTOR_VERSION = '0.1.0';
@@ -21,6 +21,7 @@ const SECRET_ENVIRONMENT_KEYS = [
   'AROFLO_ORG_ENCODED',
   'AROFLO_SECRET_KEY',
   'AROFLO_HOST_IP',
+  'AROFLO_V2_API_TOKEN',
   'MCP_ACCESS_TOKEN'
 ] as const;
 
@@ -184,7 +185,7 @@ export function createHttpServer(config: AppConfig): Server {
   }
   const effectiveAllowedHosts = loopback ? LOOPBACK_ALLOWED_HOSTS : config.allowedHosts;
 
-  const dependencies = { config, client: new AroFloClient({ config }) };
+  const dependencies = createToolDependencies(config);
   const mcp = createMcpHandler(() => buildMcpServer(dependencies), {
     legacy: 'stateless'
   });

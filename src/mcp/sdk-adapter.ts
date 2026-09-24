@@ -1,7 +1,10 @@
 import { McpServer, type ToolAnnotations } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 import type { ConnectorToolResult } from '../tools/result.js';
-import { createReadToolDefinitions, type ToolDependencies } from '../tools/read-tools.js';
+import type { ToolDependencies } from '../tools/dependencies.js';
+import { createReadToolDefinitions } from '../tools/read-tools.js';
+import { createV2InvoiceReadToolDefinitions } from '../tools/v2-invoice-read-tools.js';
+import { createV2InvoiceWriteToolDefinitions } from '../tools/v2-invoice-write-tools.js';
 import { createWriteToolDefinitions } from '../tools/write-tools.js';
 
 export interface ConnectorToolDefinition { name: string; title: string; description: string; inputSchema: z.ZodType; annotations: ToolAnnotations; execute(input: unknown): Promise<ConnectorToolResult>; }
@@ -19,7 +22,9 @@ export function createConnectorServer(identity: ConnectorServerIdentity = {}): M
   return new McpServer({
     name: identityPart(identity.name, 'aroflo-connector', 'name'),
     version: identityPart(identity.version, '0.1.0', 'version')
-  }, { instructions: 'Use describe before unfamiliar queries. Preview every proposed change. Writes may be unavailable by policy.' });
+  }, {
+    instructions: 'Use describe before unfamiliar queries. Before either supported invoice write, call its preview tool, show the preview to the user, and execute the matching write tool only with the single-use confirmationId returned by that preview. Invoice delete, archive, send, approve, payment, add-line, and remove-line operations are unsupported. Other writes may be unavailable by policy.'
+  });
 }
 
 export function registerConnectorTool(server: McpServer, definition: ConnectorToolDefinition): void {
@@ -32,4 +37,12 @@ export function registerReadTools(server: McpServer, dependencies: ToolDependenc
 
 export function registerWriteTools(server: McpServer, dependencies: ToolDependencies): void {
   for (const tool of createWriteToolDefinitions(dependencies)) registerConnectorTool(server, tool);
+}
+
+export function registerV2InvoiceReadTools(server: McpServer, dependencies: ToolDependencies): void {
+  for (const tool of createV2InvoiceReadToolDefinitions(dependencies)) registerConnectorTool(server, tool);
+}
+
+export function registerV2InvoiceWriteTools(server: McpServer, dependencies: ToolDependencies): void {
+  for (const tool of createV2InvoiceWriteToolDefinitions(dependencies)) registerConnectorTool(server, tool);
 }

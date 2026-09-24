@@ -9,7 +9,6 @@ import { asToolError, asToolResult, invalidInputResult, type ConnectorToolResult
 import { connectionStatusSchema, describeAreaSchema, getRecordSchema, listChangesSchema, previewChangeSchema, searchRecordsSchema, type GetRecordInput, type ListChangesInput, type PreviewChangeInput, type SearchRecordsInput } from './schemas.js';
 
 export const READ_TOOL_NAMES = ['aroflo_connection_status', 'aroflo_describe_area', 'aroflo_search_records', 'aroflo_get_record', 'aroflo_list_changes', 'aroflo_preview_change'] as const;
-export type { ToolDependencies } from './dependencies.js';
 export interface ReadToolDefinition { name: (typeof READ_TOOL_NAMES)[number]; title: string; description: string; inputSchema: z.ZodType; annotations: ToolAnnotations; execute(input: unknown): Promise<ConnectorToolResult>; }
 const READ_ONLY_ANNOTATIONS: ToolAnnotations = Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
 

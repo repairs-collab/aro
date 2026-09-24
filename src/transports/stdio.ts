@@ -1,11 +1,11 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
-import { AroFloClient } from '../aroflo/client.js';
 import { loadConfig, type AppConfig } from '../config.js';
 import { buildMcpServer } from '../mcp/build-server.js';
+import { createToolDependencies } from '../mcp/dependencies.js';
 import { redact } from '../redaction.js';
-import type { ToolDependencies } from '../tools/read-tools.js';
+import type { ToolDependencies } from '../tools/dependencies.js';
 
 const SECRET_ENVIRONMENT_KEYS = [
   'AROFLO_UENCODED',
@@ -13,6 +13,7 @@ const SECRET_ENVIRONMENT_KEYS = [
   'AROFLO_ORG_ENCODED',
   'AROFLO_SECRET_KEY',
   'AROFLO_HOST_IP',
+  'AROFLO_V2_API_TOKEN',
   'MCP_ACCESS_TOKEN'
 ] as const;
 
@@ -23,6 +24,7 @@ function configSensitiveValues(config: AppConfig): readonly string[] {
     config.credentials.orgEncoded,
     config.credentials.secretKey,
     ...(config.credentials.hostIp === undefined ? [] : [config.credentials.hostIp]),
+    ...(config.v2ApiToken === undefined ? [] : [config.v2ApiToken]),
     ...(config.mcpAccessToken === undefined ? [] : [config.mcpAccessToken])
   ];
 }
@@ -52,10 +54,7 @@ function isEntrypoint(): boolean {
 
 export async function runStdio(dependencies?: ToolDependencies): Promise<void> {
   const config = dependencies?.config ?? loadConfig({ ...process.env, MCP_TRANSPORT: 'stdio' });
-  const resolvedDependencies: ToolDependencies = dependencies ?? {
-    config,
-    client: new AroFloClient({ config })
-  };
+  const resolvedDependencies = dependencies ?? createToolDependencies(config);
   const sensitiveValues = configSensitiveValues(config);
 
   await new Promise<void>((resolveClosed, rejectClosed) => {
