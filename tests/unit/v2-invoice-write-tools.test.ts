@@ -120,6 +120,51 @@ describe('AroFlo v2 invoice write tools', () => {
     });
   });
 
+  it('normalizes explicit DETAILED out of stored and executed payloads', async () => {
+    let nextId = 0;
+    const client = fakeV2Client();
+    const store = new V2ConfirmationStore({
+      createId: () => `confirmation-id-at-least-twenty-chars-${++nextId}`
+    });
+    const tools = createV2InvoiceWriteToolDefinitions(dependencies(config(), client, store));
+    const previewTool = definition(tools, 'aroflo_v2_preview_create_invoice');
+    const createTool = definition(tools, 'aroflo_v2_create_invoice');
+    const input = {
+      businessUnitId: 'bu-1',
+      taskId: 'task-1',
+      type: 'FINAL_INVOICE' as const,
+      defaultLayout: 'DETAILED' as const,
+      taxInclusive: true
+    };
+
+    const inspectedPreview = await previewTool.execute(input);
+    expect(inspectedPreview.structuredContent).toMatchObject({
+      preview: { effectiveLayout: 'DETAILED' }
+    });
+    const inspectedId = String((inspectedPreview.structuredContent as Record<string, unknown>).confirmationId);
+    expect(store.consume(inspectedId)).toEqual({
+      kind: 'createInvoice',
+      input: {
+        businessUnitId: 'bu-1',
+        taskId: 'task-1',
+        type: 'FINAL_INVOICE',
+        taxInclusive: true
+      }
+    });
+
+    const executedPreview = await previewTool.execute(input);
+    const executedId = String((executedPreview.structuredContent as Record<string, unknown>).confirmationId);
+    await createTool.execute({ confirmationId: executedId });
+
+    expect(client.createInvoice).toHaveBeenCalledOnce();
+    expect(client.createInvoice).toHaveBeenCalledWith({
+      businessUnitId: 'bu-1',
+      taskId: 'task-1',
+      type: 'FINAL_INVOICE',
+      taxInclusive: true
+    });
+  });
+
   it('accepts only documented create fields and explicit invoice types', async () => {
     const client = fakeV2Client();
     const preview = definition(

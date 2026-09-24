@@ -177,8 +177,10 @@ async function previewCreate(
   _client: AroFloV2Client,
   store: V2ConfirmationStore
 ): Promise<Record<string, unknown>> {
-  const outbound = input as CreateInvoiceInput;
   const { defaultLayout, ...previewFields } = input;
+  const outbound = (defaultLayout === undefined || defaultLayout === 'DETAILED'
+    ? previewFields
+    : { ...previewFields, defaultLayout }) as CreateInvoiceInput;
   const confirmation = store.issue({ kind: 'createInvoice', input: outbound });
   return {
     operation: 'createInvoice',
