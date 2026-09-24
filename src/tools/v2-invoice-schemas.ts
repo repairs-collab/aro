@@ -1,6 +1,9 @@
 import * as z from 'zod/v4';
+import { INVOICE_LAYOUTS, INVOICE_TYPES } from '../aroflo-v2/contracts.js';
 
 const boundedId = z.string().trim().min(1).max(256);
+const boundedShortText = z.string().max(1_000);
+const finiteNumber = z.number().finite();
 const projectionField = z.string()
   .min(1)
   .max(256)
@@ -67,7 +70,52 @@ export const invoiceLineListSchema = z.strictObject({
   fields: projection.optional()
 });
 
+export const createInvoiceSchema = z.strictObject({
+  businessUnitId: boundedId,
+  taskId: boundedId,
+  type: z.enum(INVOICE_TYPES),
+  defaultLayout: z.enum(INVOICE_LAYOUTS).optional(),
+  expenseTrackingCenterId: boundedId.optional(),
+  labourTrackingCenterId: boundedId.optional(),
+  materialTrackingCenterId: boundedId.optional(),
+  overrideQuote: z.boolean().optional(),
+  taxInclusive: z.boolean().optional()
+});
+
+export const invoiceLinePatchSchema = z.strictObject({
+  accountCode: boundedShortText.optional(),
+  costEx: finiteNumber.optional(),
+  description: z.string().max(10_000).optional(),
+  discount: finiteNumber.optional(),
+  id: boundedId.optional(),
+  listOrder: z.number().int().min(0).optional(),
+  markup: finiteNumber.optional(),
+  partNumber: boundedShortText.optional(),
+  quantity: finiteNumber.optional(),
+  sell: finiteNumber.optional(),
+  taxCode: boundedShortText.optional(),
+  totalEx: finiteNumber.optional(),
+  trackingCentre: boundedShortText.optional()
+}).refine((value) => Object.keys(value).length > 0, 'At least one line field is required');
+
+export const previewInvoiceLineUpdateSchema = z.strictObject({
+  invoiceId: boundedId,
+  invoiceLineItemId: boundedId,
+  fields: invoiceLinePatchSchema
+}).refine(
+  (value) => value.fields.id === undefined || value.fields.id === value.invoiceLineItemId,
+  { message: 'Line item body id must match invoiceLineItemId', path: ['fields', 'id'] }
+);
+
+export const executeV2WriteSchema = z.strictObject({
+  confirmationId: z.string().min(20).max(200)
+});
+
 export type InvoiceListInput = z.infer<typeof invoiceListSchema>;
 export type InvoiceGetInput = z.infer<typeof invoiceGetSchema>;
 export type InvoiceRecipientsInput = z.infer<typeof invoiceRecipientsSchema>;
 export type InvoiceLineListInput = z.infer<typeof invoiceLineListSchema>;
+export type CreateInvoiceToolInput = z.infer<typeof createInvoiceSchema>;
+export type InvoiceLinePatchInput = z.infer<typeof invoiceLinePatchSchema>;
+export type PreviewInvoiceLineUpdateInput = z.infer<typeof previewInvoiceLineUpdateSchema>;
+export type ExecuteV2WriteInput = z.infer<typeof executeV2WriteSchema>;
