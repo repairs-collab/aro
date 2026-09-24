@@ -288,6 +288,16 @@ describe('AroFloV2Client resilience', () => {
     });
   });
 
+  it('redacts the bearer token from successful response property names', async () => {
+    const server = await fakeServer();
+    server.queue({ body: { nested: { 'fake-v2-token': 'echoed as a key' } } });
+
+    const result = await v2Client(server).healthcheck();
+
+    expect(result).toEqual({ nested: { '[REDACTED]': 'echoed as a key' } });
+    expect(JSON.stringify(result)).not.toContain('fake-v2-token');
+  });
+
   it('aborts a stalled response at requestTimeoutMs', async () => {
     const server = await fakeServer();
     server.queue(...Array.from({ length: 4 }, () => ({ chunks: ['{"partial":'], stall: true })));
