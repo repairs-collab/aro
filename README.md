@@ -114,7 +114,7 @@ ChatGPT access from other devices requires deploying the hosted container over H
 
 ## Rate limits
 
-The connector defaults to one request per second, 60 per minute, and a 1,900-call daily soft limit (Sydney date), below the documented ceilings of 3 per second, 120 per minute, and 2,000 per day. GET requests may retry transient failures; POST requests are never retried automatically.
+The connector defaults to one request per second, 60 per minute, and a 1,900-call daily soft limit (Sydney date), below the documented ceilings of 3 per second, 120 per minute, and 2,000 per day. GET requests may retry transient failures; neither POST nor PATCH financial writes are automatically retried.
 
 ## Troubleshooting
 

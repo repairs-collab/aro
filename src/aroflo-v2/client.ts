@@ -1,5 +1,6 @@
 import type { AppConfig } from '../config.js';
 import { redact } from '../redaction.js';
+import { parseRetryAfter, type ParsedRetryAfter } from '../retry-after.js';
 import { ConnectorError, type ConnectorErrorCode } from '../aroflo/errors.js';
 import type { RequestBudget } from '../aroflo/rate-limiter.js';
 import {
@@ -112,7 +113,12 @@ export class AroFloV2Client {
         lastError = error;
 
         if (method !== 'GET' || !error.retryable || attempt === MAX_RETRIES) throw error;
-        const retryAfter = caught instanceof V2HttpError ? caught.retryAfterMs : undefined;
+        if (caught instanceof V2HttpError && caught.retryAfter.kind === 'invalid' && error.code === 'RATE_LIMIT') {
+          throw error;
+        }
+        const retryAfter = caught instanceof V2HttpError && caught.retryAfter.kind === 'delay'
+          ? caught.retryAfter.milliseconds
+          : undefined;
         const backoff = 250 * (2 ** attempt) + Math.floor(this.random() * 100);
         await this.sleep(retryAfter ?? backoff);
       }
@@ -212,7 +218,7 @@ export class AroFloV2Client {
               ? 'UPSTREAM'
               : 'VALIDATION';
     const retryable = status === 408 || status === 429 || status >= 500;
-    return new V2HttpError(code, this.safeHttpMessage(status, body), retryable, this.retryAfterMs(response));
+    return new V2HttpError(code, this.safeHttpMessage(status, body), retryable, this.retryAfter(response));
   }
 
   private safeHttpMessage(status: number, body: unknown): string {
@@ -238,12 +244,8 @@ export class AroFloV2Client {
     ];
   }
 
-  private retryAfterMs(response: Response): number | undefined {
-    const value = response.headers.get('retry-after');
-    if (value === null) return undefined;
-    if (/^\d+(?:\.\d+)?$/.test(value.trim())) return Math.max(0, Number(value) * 1_000);
-    const date = Date.parse(value);
-    return Number.isNaN(date) ? undefined : Math.max(0, date - this.now().getTime());
+  private retryAfter(response: Response): ParsedRetryAfter {
+    return parseRetryAfter(response.headers.get('retry-after'), this.now().getTime());
   }
 
   private normalizeThrown(caught: unknown): ConnectorError {
@@ -257,7 +259,7 @@ class V2HttpError extends ConnectorError {
     code: ConnectorErrorCode,
     message: string,
     retryable: boolean,
-    readonly retryAfterMs?: number
+    readonly retryAfter: ParsedRetryAfter
   ) {
     super(code, message, retryable);
   }

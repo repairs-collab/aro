@@ -283,7 +283,7 @@ describe('hosted HTTP transport', () => {
 
     const health = await send(port, '/healthz', { headers: { host: `localhost:${port}` } });
     expect(health.status).toBe(200);
-    expect(JSON.parse(health.body)).toEqual({ status: 'ok', version: '0.1.0' });
+    expect(JSON.parse(health.body)).toEqual({ status: 'ok', version: '0.2.0' });
     expect(Object.keys(JSON.parse(health.body))).toEqual(['status', 'version']);
 
     const missing = await send(port, '/not-mcp', { headers: { host: `localhost:${port}` } });
@@ -465,7 +465,7 @@ describe('hosted HTTP transport', () => {
     expect(result.elapsedMs).toBeLessThan(1_500);
     expect(result.response).toMatch(/^HTTP\/1\.1 200 /);
     expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
-    expect(result.response).toContain('{"status":"ok","version":"0.1.0"}');
+    expect(result.response).toContain('{"status":"ok","version":"0.2.0"}');
     expect(result.response).not.toContain('fake-access-token');
     expect(mcpDispatches).not.toHaveBeenCalled();
   });

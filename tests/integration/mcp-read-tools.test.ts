@@ -108,6 +108,12 @@ describe('MCP read tools', () => {
     expect(client.getServerVersion()).toEqual({ name: 'aroflo-safe-test', version: '2.4.6' });
   });
 
+  it('publishes the connector manifest version by default', async () => {
+    const client = await connectedClient(fakeClient());
+
+    expect(client.getServerVersion()).toEqual({ name: 'aroflo-connector', version: '0.2.0' });
+  });
+
   it('rejects empty or oversized server identity parts', () => {
     expect(() => buildMcpServer({ config, client: fakeClient() as unknown as AroFloClient, name: '  ' })).toThrow('name');
     expect(() => buildMcpServer({ config, client: fakeClient() as unknown as AroFloClient, version: 'v'.repeat(101) })).toThrow('version');

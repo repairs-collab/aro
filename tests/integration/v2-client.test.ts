@@ -198,6 +198,29 @@ describe('AroFloV2Client resilience', () => {
     expect(delays).toEqual([2_000, 2_000, 2_000]);
   });
 
+  it.each(['Infinity', '2147484', 'not-a-delay', '-1'])(
+    'does not retry a rate limit with unsafe Retry-After %s',
+    async (retryAfter) => {
+      const server = await fakeServer();
+      server.queue({
+        status: 429,
+        headers: { 'retry-after': retryAfter },
+        body: { message: 'Wait' }
+      });
+      const delays: number[] = [];
+      const client = v2Client(server, {
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+        random: () => 0
+      });
+
+      await expect(client.healthcheck()).rejects.toMatchObject({ code: 'RATE_LIMIT', retryable: true });
+      expect(server.requests).toHaveLength(1);
+      expect(delays).toEqual([]);
+    }
+  );
+
   it.each([
     ['POST', 429],
     ['POST', 500],

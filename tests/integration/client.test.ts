@@ -328,6 +328,36 @@ describe('AroFloClient failures and retries', () => {
     expect(server.requests).toHaveLength(2);
   });
 
+  it.each(['Infinity', '2147484', 'not-a-delay', '-1'])(
+    'does not retry a rate limit with unsafe Retry-After %s',
+    async (retryAfter) => {
+      const server = await fakeServer();
+      server.queue({
+        status: 429,
+        headers: { 'retry-after': retryAfter },
+        body: { status: 'ERROR', statusmessage: 'Wait' }
+      });
+      const delays: number[] = [];
+      const client = new AroFloClient({
+        config,
+        baseUrl: server.baseUrl,
+        now: fixedNow,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+        random: () => 0,
+        rateLimits: { second: 10_000, minute: 10_000, daily: 1_900 }
+      });
+
+      await expect(client.search({ area: 'tasks', fresh: true })).rejects.toMatchObject({
+        code: 'RATE_LIMIT',
+        retryable: true
+      });
+      expect(server.requests).toHaveLength(1);
+      expect(delays).toEqual([]);
+    }
+  );
+
   it('rejects malformed JSON and oversized raw responses with stable codes', async () => {
     const server = await fakeServer();
     server.queue(

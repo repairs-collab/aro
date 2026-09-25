@@ -210,7 +210,11 @@ async function previewLineUpdate(
     after[field] = value;
   }
 
-  const fields = input.fields as InvoiceLinePatch;
+  if (Object.keys(after).length === 0) {
+    throw new ConnectorError('VALIDATION', 'Invoice line update would not change any fields');
+  }
+
+  const fields = after as InvoiceLinePatch;
   const confirmation = store.issue({
     kind: 'updateInvoiceLineItem',
     invoiceId: input.invoiceId,

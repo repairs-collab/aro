@@ -5,11 +5,11 @@ import { pathToFileURL } from 'node:url';
 import { toNodeHandler, type NodeIncomingMessageLike } from '@modelcontextprotocol/node';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { loadConfig, normalizeConfiguredBindHost, normalizeRequestHost, type AppConfig } from '../config.js';
+import { CONNECTOR_VERSION } from '../metadata.js';
 import { buildMcpServer } from '../mcp/build-server.js';
 import { createToolDependencies } from '../mcp/dependencies.js';
 import { redact } from '../redaction.js';
 
-const CONNECTOR_VERSION = '0.1.0';
 const MAX_REQUEST_BODY_BYTES = 1024 * 1024;
 const REJECTION_CLOSE_DEADLINE_MS = 250;
 const SHUTDOWN_DEADLINE_MS = 5_000;

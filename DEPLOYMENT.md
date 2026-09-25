@@ -79,7 +79,7 @@ Make invoice writes a second separate reviewed change:
 2. Enable the financial write flag and include `invoices` in the allowlist while the ordinary flag remains enabled.
 3. Restart and verify only the intended tools and areas are exposed.
 
-Writes remain create/update only. There is no delete or archive route, and POST requests are never automatically retried.
+Writes remain create/update only. There is no delete or archive route, and neither POST nor PATCH financial writes are automatically retried.
 
 ## Rollback and rotation
 

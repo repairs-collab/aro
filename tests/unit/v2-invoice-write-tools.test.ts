@@ -263,11 +263,35 @@ describe('AroFlo v2 invoice write tools', () => {
 
     expect(client.updateInvoiceLineItem).toHaveBeenCalledOnce();
     expect(client.updateInvoiceLineItem).toHaveBeenCalledWith('inv-1', 'line-1', {
-      id: 'line-1', description: 'New description', quantity: 2, sell: 100
+      description: 'New description', quantity: 2
     });
     expect(result.structuredContent).toEqual({
       operation: 'updateInvoiceLineItem', invoiceId: 'inv-1', success: true
     });
+  });
+
+  it('rejects a no-op line update without issuing a confirmation', async () => {
+    let issueCalls = 0;
+    const store = new V2ConfirmationStore({ createId: () => {
+      issueCalls += 1;
+      return 'confirmation-id-at-least-twenty-chars';
+    } });
+    const client = fakeV2Client();
+    const tools = createV2InvoiceWriteToolDefinitions(dependencies(config(), client, store));
+
+    const preview = await definition(tools, 'aroflo_v2_preview_update_invoice_line_item').execute({
+      invoiceId: 'inv-1',
+      invoiceLineItemId: 'line-1',
+      fields: { id: 'line-1', description: 'Old description', quantity: 1, sell: 100 }
+    });
+
+    expect(preview).toMatchObject({
+      isError: true,
+      structuredContent: { error: { code: 'VALIDATION' } }
+    });
+    expect(preview.structuredContent).not.toHaveProperty('confirmationId');
+    expect(issueCalls).toBe(0);
+    expect(client.updateInvoiceLineItem).not.toHaveBeenCalled();
   });
 
   it('rejects a missing target or mismatched body id without issuing a confirmation', async () => {

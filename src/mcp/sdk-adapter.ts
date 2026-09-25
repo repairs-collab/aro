@@ -6,6 +6,7 @@ import { createReadToolDefinitions } from '../tools/read-tools.js';
 import { createV2InvoiceReadToolDefinitions } from '../tools/v2-invoice-read-tools.js';
 import { createV2InvoiceWriteToolDefinitions } from '../tools/v2-invoice-write-tools.js';
 import { createWriteToolDefinitions } from '../tools/write-tools.js';
+import { CONNECTOR_VERSION } from '../metadata.js';
 
 export interface ConnectorToolDefinition { name: string; title: string; description: string; inputSchema: z.ZodType; annotations: ToolAnnotations; execute(input: unknown): Promise<ConnectorToolResult>; }
 
@@ -21,7 +22,7 @@ function identityPart(value: string | undefined, fallback: string, label: 'name'
 export function createConnectorServer(identity: ConnectorServerIdentity = {}): McpServer {
   return new McpServer({
     name: identityPart(identity.name, 'aroflo-connector', 'name'),
-    version: identityPart(identity.version, '0.1.0', 'version')
+    version: identityPart(identity.version, CONNECTOR_VERSION, 'version')
   }, {
     instructions: 'Use describe before unfamiliar queries. Before either supported invoice write, call its preview tool, show the preview to the user, and execute the matching write tool only with the single-use confirmationId returned by that preview. Invoice delete, archive, send, approve, payment, add-line, and remove-line operations are unsupported. Other writes may be unavailable by policy.'
   });
