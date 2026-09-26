@@ -1,5 +1,11 @@
 export { AroFloClient } from './aroflo/client.js';
 export type { AroFloClientOptions, AroFloPage, RateBudget } from './aroflo/client.js';
+export { AroFloV2Client } from './aroflo-v2/client.js';
+export type { AroFloV2ClientOptions } from './aroflo-v2/client.js';
+export { V2ConfirmationStore } from './aroflo-v2/confirmation-store.js';
+export type { V2ConfirmationStoreOptions, V2InvoiceOperation } from './aroflo-v2/confirmation-store.js';
+export { INVOICE_LAYOUTS, INVOICE_TYPES } from './aroflo-v2/contracts.js';
+export type { CreateInvoiceInput, InvoiceLineListQuery, InvoiceLinePatch, InvoiceListQuery } from './aroflo-v2/contracts.js';
 export { AREA_DEFINITIONS, compileReadQuery, describeArea, getAreaDefinition } from './aroflo/area-registry.js';
 export { compileChange, previewChange } from './aroflo/change-compiler.js';
 export type { ChangeInput, ChangeOperation, ChangePreview, CompiledChange } from './aroflo/change-compiler.js';

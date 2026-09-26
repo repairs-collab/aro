@@ -1,13 +1,15 @@
+import { spawn } from 'node:child_process';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { FetchLikeMcpHandler, NodeMcpRequestHandler, ToNodeHandlerOptions } from '@modelcontextprotocol/node';
 import { request as httpRequest, type IncomingMessage, type RequestOptions } from 'node:http';
 import { createConnection, type AddressInfo, type Socket } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, type AppConfig } from '../../src/config.js';
-import { createHttpServer, shutdownHttpServer } from '../../src/transports/http.js';
+import { bearerMatches, createHttpServer, shutdownHttpServer } from '../../src/transports/http.js';
 import { READ_TOOL_NAMES } from '../../src/tools/read-tools.js';
 
 const mcpDispatches = vi.hoisted(() => vi.fn());
+const NODE_PATH = process.execPath;
 
 vi.mock('@modelcontextprotocol/node', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@modelcontextprotocol/node')>();
@@ -36,6 +38,14 @@ const baseEnvironment = {
   MCP_TRANSPORT: 'http',
   MCP_ACCESS_TOKEN: 'fake-access-token'
 } as const;
+
+function safeProcessEnvironment(): Record<string, string> {
+  const inheritedKeys = ['PATH', 'SystemRoot', 'WINDIR', 'TEMP', 'TMP', 'USERPROFILE'] as const;
+  return Object.fromEntries(inheritedKeys.flatMap((key) => {
+    const value = process.env[key];
+    return value === undefined ? [] : [[key, value]];
+  }));
+}
 
 interface HttpResponse {
   status: number;
@@ -188,6 +198,48 @@ describe('hosted configuration', () => {
 });
 
 describe('hosted HTTP transport', () => {
+  it('retains exact bearer-token matching for equal, unequal, and different-length values', () => {
+    expect(bearerMatches('Bearer fake-access-token', 'fake-access-token')).toBe(true);
+    expect(bearerMatches('Bearer fake-access-tokee', 'fake-access-token')).toBe(false);
+    expect(bearerMatches('Bearer short', 'fake-access-token')).toBe(false);
+  });
+
+  it('redacts the v2 token from startup errors', async () => {
+    const v2Token = 'fatal-fake-v2-token';
+    const child = spawn(NODE_PATH, ['--import', 'tsx', 'src/transports/http.ts'], {
+      cwd: process.cwd(),
+      env: {
+        ...safeProcessEnvironment(),
+        AROFLO_UENCODED: 'fake-user',
+        AROFLO_PENCODED: 'fake-password',
+        AROFLO_ORG_ENCODED: 'fake-org',
+        AROFLO_SECRET_KEY: 'fake-secret',
+        AROFLO_V2_API_TOKEN: v2Token,
+        AROFLO_WRITE_ENABLED: 'false',
+        AROFLO_WRITABLE_AREAS: v2Token,
+        AROFLO_FINANCIAL_WRITES_ENABLED: 'false',
+        MCP_TRANSPORT: 'http',
+        MCP_ACCESS_TOKEN: 'fake-access-token'
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
+    child.stderr.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
+
+    const exitCode = await new Promise<number | null>((resolveExit, reject) => {
+      child.once('error', reject);
+      child.once('exit', resolveExit);
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('[REDACTED]');
+    expect(stderr).not.toContain(v2Token);
+  });
+
   it('returns a Bearer challenge for missing and wrong credentials', async () => {
     const { port } = await listen(loadConfig(baseEnvironment));
     const requestBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
@@ -231,7 +283,7 @@ describe('hosted HTTP transport', () => {
 
     const health = await send(port, '/healthz', { headers: { host: `localhost:${port}` } });
     expect(health.status).toBe(200);
-    expect(JSON.parse(health.body)).toEqual({ status: 'ok', version: '0.1.0' });
+    expect(JSON.parse(health.body)).toEqual({ status: 'ok', version: '0.2.0' });
     expect(Object.keys(JSON.parse(health.body))).toEqual(['status', 'version']);
 
     const missing = await send(port, '/not-mcp', { headers: { host: `localhost:${port}` } });
@@ -413,7 +465,7 @@ describe('hosted HTTP transport', () => {
     expect(result.elapsedMs).toBeLessThan(1_500);
     expect(result.response).toMatch(/^HTTP\/1\.1 200 /);
     expect(result.response).toMatch(/\r\nconnection: close\r\n/i);
-    expect(result.response).toContain('{"status":"ok","version":"0.1.0"}');
+    expect(result.response).toContain('{"status":"ok","version":"0.2.0"}');
     expect(result.response).not.toContain('fake-access-token');
     expect(mcpDispatches).not.toHaveBeenCalled();
   });

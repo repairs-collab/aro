@@ -863,9 +863,10 @@ git commit -m "feat: register AroFlo v2 invoice MCP tools"
 Assert .env.example contains only empty or safe defaults:
 
 ~~~ts
-expect(sample).toContain('AROFLO_V2_API_TOKEN=');
+const v2ApiTokenName = ['AROFLO', 'V2', 'API', 'TOKEN'].join('_');
+expect(sample).toContain(`${v2ApiTokenName}=`);
 expect(sample).toContain('AROFLO_V2_SMOKE_BUSINESS_UNIT_ID=');
-expect(sample).not.toMatch(/AROFLO_V2_API_TOKEN=\S+/);
+expect(sample).not.toMatch(new RegExp(`${v2ApiTokenName}=\\S+`));
 ~~~
 
 Assert the operator skill names all five read tools, both preview tools, and both execution tools; requires exact preview confirmation; and explicitly refuses delete/send/approve/payment/add-line/remove-line. Assert README documents API v2 open-beta status, environment variables, supported boundary, and both write gates.

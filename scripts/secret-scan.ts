@@ -35,6 +35,7 @@ const SENSITIVE_ENVIRONMENT_KEYS = [
   'AROFLO_ORG_ENCODED',
   'AROFLO_SECRET_KEY',
   'AROFLO_HOST_IP',
+  'AROFLO_V2_API_TOKEN',
   'MCP_ACCESS_TOKEN'
 ] as const;
 
@@ -72,7 +73,7 @@ export function scanPathsForCli(
   ];
 }
 
-const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY)|MCP_ACCESS_TOKEN)';
+const CREDENTIAL_NAME = '(?:AROFLO_(?:UENCODED|PENCODED|ORG_ENCODED|SECRET_KEY|V2_API_TOKEN)|MCP_ACCESS_TOKEN)';
 const credentialEqualsAssignment = new RegExp(
   `\\b${CREDENTIAL_NAME}\\b[ \\t]*=(?!=)[ \\t]*(?:"([^"\\r\\n]+)"|'([^'\\r\\n]+)'|([^\\s#;=]+))`,
   'gi'

@@ -28,6 +28,7 @@ export async function startFakeAroFloServer(): Promise<FakeAroFloServer> {
   const requests: RecordedRequest[] = [];
   const responses: QueuedResponse[] = [];
   const server: Server = createServer((request, response) => {
+    response.on('error', () => undefined);
     const chunks: Buffer[] = [];
     request.on('data', (chunk: Buffer) => chunks.push(chunk));
     request.on('end', () => {

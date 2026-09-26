@@ -9,6 +9,13 @@ const base = {
 };
 
 describe('loadConfig', () => {
+  it('loads and trims an optional v2 token without requiring it for legacy use', () => {
+    expect(loadConfig(base).v2ApiToken).toBeUndefined();
+    expect(loadConfig({ ...base, AROFLO_V2_API_TOKEN: '  fake-v2-token  ' }).v2ApiToken)
+      .toBe('fake-v2-token');
+    expect(loadConfig({ ...base, AROFLO_V2_API_TOKEN: '   ' }).v2ApiToken).toBeUndefined();
+  });
+
   it('rejects each missing credential without including its value', () => {
     for (const name of Object.keys(base)) {
       const env = { ...base } as Record<string, string>;
