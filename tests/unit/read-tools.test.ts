@@ -18,6 +18,7 @@ const config: AppConfig = {
   writeEnabled: false,
   writableAreas: new Set(),
   financialWritesEnabled: false,
+  v2ApiToken: 'fake-v2-token',
   bindHost: '127.0.0.1',
   allowedHosts: new Set(['localhost', '127.0.0.1', '[::1]']),
   port: 3000,
@@ -203,7 +204,7 @@ describe('read tool definitions', () => {
 
   it('redacts recursive secrets immediately before text and structured serialization', async () => {
     const client = fakeClient();
-    client.get.mockRejectedValueOnce(new Error('failed with fake-secret and uEncoded=fake-user'));
+    client.get.mockRejectedValueOnce(new Error('failed with fake-secret, uEncoded=fake-user, token=fake-v2-token'));
     const tools = createReadToolDefinitions({ config, client: client as unknown as AroFloClient });
 
     const result = await definition(tools, 'aroflo_get_record').execute({ area: 'tasks', id: 'T-1' });
@@ -212,6 +213,7 @@ describe('read tool definitions', () => {
     expect(result.isError).toBe(true);
     expect(serialized).not.toContain('fake-secret');
     expect(serialized).not.toContain('fake-user');
+    expect(serialized).not.toContain('fake-v2-token');
     expect(serialized).not.toMatch(/stack|node_modules|read-tools\.ts/i);
   });
 

@@ -55,7 +55,8 @@ export function redact(value: unknown, sensitiveValues: readonly string[] = []):
     }
 
     for (const [key, entry] of Object.entries(current)) {
-      output[key] = isSecretKey(key) ? REDACTED : visit(entry);
+      const redactedKey = redactText(key, sensitiveValues);
+      output[redactedKey] = isSecretKey(key) ? REDACTED : visit(entry);
     }
 
     return output;

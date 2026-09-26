@@ -5,7 +5,7 @@ import { compileChange, type ChangeOperation } from '../aroflo/change-compiler.j
 import { ConnectorError } from '../aroflo/errors.js';
 import { AREAS, canWriteArea, type Area } from '../config.js';
 import { asToolError, asToolResult, invalidInputResult, type ConnectorToolResult } from './result.js';
-import type { ToolDependencies } from './read-tools.js';
+import type { ToolDependencies } from './dependencies.js';
 
 export const WRITE_TOOL_NAMES = ['aroflo_create_record', 'aroflo_update_record'] as const;
 
@@ -43,6 +43,7 @@ function secrets(dependencies: ToolDependencies): readonly string[] {
     config.credentials.orgEncoded,
     config.credentials.secretKey,
     ...(config.credentials.hostIp === undefined ? [] : [config.credentials.hostIp]),
+    ...(config.v2ApiToken === undefined ? [] : [config.v2ApiToken]),
     ...(config.mcpAccessToken === undefined ? [] : [config.mcpAccessToken])
   ];
 }

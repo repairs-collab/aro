@@ -124,7 +124,8 @@ describe('stdio transport', () => {
 
   it('keeps startup failures on stderr and redacts configured secret values', async () => {
     const secret = 'fatal-fake-secret';
-    const child = spawn(NODE_PATH, ['dist/src/transports/stdio.js'], {
+    const v2Token = 'fatal-fake-v2-token';
+    const child = spawn(NODE_PATH, ['--import', 'tsx', 'src/transports/stdio.ts'], {
       cwd: process.cwd(),
       env: {
         ...safeProcessEnvironment(),
@@ -132,8 +133,9 @@ describe('stdio transport', () => {
         AROFLO_PENCODED: 'fake-password',
         AROFLO_ORG_ENCODED: 'fake-org',
         AROFLO_SECRET_KEY: secret,
+        AROFLO_V2_API_TOKEN: v2Token,
         AROFLO_WRITE_ENABLED: 'false',
-        AROFLO_WRITABLE_AREAS: secret,
+        AROFLO_WRITABLE_AREAS: v2Token,
         AROFLO_FINANCIAL_WRITES_ENABLED: 'false'
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -153,5 +155,6 @@ describe('stdio transport', () => {
     expect(stdout).toBe('');
     expect(stderr).toContain('[REDACTED]');
     expect(stderr).not.toContain(secret);
+    expect(stderr).not.toContain(v2Token);
   });
 });

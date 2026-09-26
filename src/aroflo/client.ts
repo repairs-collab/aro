@@ -1,12 +1,13 @@
 import type { AppConfig, Area } from '../config.js';
 import { redact } from '../redaction.js';
+import { parseRetryAfter, type ParsedRetryAfter } from '../retry-after.js';
 import { compileReadQuery, getAreaDefinition } from './area-registry.js';
 import type { FilterInput, SearchInput } from './areas/types.js';
 import { signedHeaders } from './auth.js';
 import { TimedCache } from './cache.js';
 import { ConnectorError, type ConnectorErrorCode } from './errors.js';
 import { encodePairs, type EncodedPair } from './query.js';
-import { DEFAULT_RATE_LIMITS, RateLimiter, type RateLimits } from './rate-limiter.js';
+import { DEFAULT_RATE_LIMITS, RateLimiter, type RateLimits, type RequestBudget } from './rate-limiter.js';
 
 export type { FilterInput, SearchInput } from './areas/types.js';
 
@@ -35,6 +36,7 @@ export interface AroFloClientOptions {
   baseUrl?: string;
   /** Test-only override for exercising budget boundaries quickly. */
   rateLimits?: RateLimits;
+  requestBudget?: RequestBudget;
 }
 
 interface NormalizedBody {
@@ -95,7 +97,7 @@ export class AroFloClient {
   private readonly random: () => number;
   private readonly baseUrl: string;
   private readonly cache: TimedCache<AroFloPage>;
-  private readonly limiter: RateLimiter;
+  private readonly limiter: RequestBudget;
 
   constructor(options: AroFloClientOptions) {
     this.config = options.config;
@@ -105,7 +107,7 @@ export class AroFloClient {
     this.random = options.random ?? Math.random;
     this.baseUrl = options.baseUrl ?? 'https://api.aroflo.com/';
     this.cache = new TimedCache(CACHE_TTL_MS, () => this.now().getTime());
-    this.limiter = new RateLimiter({
+    this.limiter = options.requestBudget ?? new RateLimiter({
       now: this.now,
       sleep: this.sleep,
       limits: options.rateLimits ?? { ...DEFAULT_RATE_LIMITS }
@@ -198,7 +200,12 @@ export class AroFloClient {
           : normalized;
         lastError = error;
         if (method !== 'GET' || !error.retryable || attempt === MAX_RETRIES) throw error;
-        const retryAfter = caught instanceof HttpConnectorError ? caught.retryAfterMs : undefined;
+        if (caught instanceof HttpConnectorError && caught.retryAfter.kind === 'invalid' && error.code === 'RATE_LIMIT') {
+          throw error;
+        }
+        const retryAfter = caught instanceof HttpConnectorError && caught.retryAfter.kind === 'delay'
+          ? caught.retryAfter.milliseconds
+          : undefined;
         const backoff = 250 * (2 ** attempt) + Math.floor(this.random() * 100);
         await this.sleep(retryAfter ?? backoff);
       }
@@ -246,7 +253,7 @@ export class AroFloClient {
       clearTimeout(timeout);
     }
     if (!response.ok) throw this.httpError(response, body, postXml, encoded);
-    this.assertBodySuccess(body, postXml, encoded, this.retryAfterMs(response));
+    this.assertBodySuccess(body, postXml, encoded, this.retryAfter(response));
 
     const records = recordsFrom(body.zoneresponse, area);
     if (records.length > MAX_RECORDS) {
@@ -349,14 +356,14 @@ export class AroFloClient {
               : 'VALIDATION';
     const retryable = status === 408 || status === 429 || status >= 500;
     const message = this.safeStatusMessage(`AroFlo HTTP ${status}`, body, postXml, encoded);
-    return new HttpConnectorError(code, message, retryable, this.retryAfterMs(response));
+    return new HttpConnectorError(code, message, retryable, this.retryAfter(response));
   }
 
   private assertBodySuccess(
     body: NormalizedBody,
     postXml: string | undefined,
     encoded: string,
-    retryAfterMs: number | undefined
+    retryAfter: ParsedRetryAfter
   ): void {
     if (body.status === undefined) {
       throw new ConnectorError('MALFORMED_RESPONSE', 'AroFlo response did not include a status field');
@@ -383,7 +390,7 @@ export class AroFloClient {
       classification[0],
       this.safeStatusMessage('AroFlo body error', body, postXml, encoded),
       classification[1],
-      retryAfterMs
+      retryAfter
     );
   }
 
@@ -410,12 +417,8 @@ export class AroFloClient {
       .slice(0, 500);
   }
 
-  private retryAfterMs(response: Response): number | undefined {
-    const value = response.headers.get('retry-after');
-    if (value === null) return undefined;
-    if (/^\d+(?:\.\d+)?$/.test(value.trim())) return Math.max(0, Number(value) * 1_000);
-    const date = Date.parse(value);
-    return Number.isNaN(date) ? undefined : Math.max(0, date - this.now().getTime());
+  private retryAfter(response: Response): ParsedRetryAfter {
+    return parseRetryAfter(response.headers.get('retry-after'), this.now().getTime());
   }
 
   private normalizeThrown(caught: unknown): ConnectorError {
@@ -429,7 +432,7 @@ class HttpConnectorError extends ConnectorError {
     code: ConnectorErrorCode,
     message: string,
     retryable: boolean,
-    readonly retryAfterMs?: number
+    readonly retryAfter: ParsedRetryAfter
   ) {
     super(code, message, retryable);
   }

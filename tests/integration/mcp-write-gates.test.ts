@@ -2,8 +2,12 @@ import { Client } from '@modelcontextprotocol/client';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AroFloClient } from '../../src/aroflo/client.js';
+import type { AroFloV2Client } from '../../src/aroflo-v2/client.js';
+import { V2ConfirmationStore } from '../../src/aroflo-v2/confirmation-store.js';
 import type { AppConfig, Area } from '../../src/config.js';
 import { buildMcpServer } from '../../src/mcp/build-server.js';
+import type { ToolDependencies } from '../../src/tools/dependencies.js';
+import { V2_WRITE_TOOL_NAMES } from '../../src/tools/v2-invoice-write-tools.js';
 import { WRITE_TOOL_NAMES } from '../../src/tools/write-tools.js';
 import { startFakeAroFloServer } from './fake-aroflo-server.js';
 
@@ -40,8 +44,12 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map((client) => client.close()));
 });
 
-async function connectedClient(appConfig: AppConfig, arofloClient: AroFloClient): Promise<Client> {
-  const server = buildMcpServer({ config: appConfig, client: arofloClient });
+async function connectedClient(
+  appConfig: AppConfig,
+  arofloClient: AroFloClient,
+  optionalDependencies: Pick<ToolDependencies, 'v2Client' | 'v2Confirmations'> = {}
+): Promise<Client> {
+  const server = buildMcpServer({ config: appConfig, client: arofloClient, ...optionalDependencies });
   const client = new Client({ name: 'write-gate-test', version: '1.0.0' });
   clients.push(client);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -56,6 +64,30 @@ function areaEnum(tool: Awaited<ReturnType<Client['listTools']>>['tools'][number
 }
 
 describe('MCP write discovery gates', () => {
+  it.each([
+    { writeEnabled: false, writableAreas: ['invoices'], financial: true, names: [] },
+    { writeEnabled: true, writableAreas: [], financial: true, names: [] },
+    { writeEnabled: true, writableAreas: ['invoices'], financial: false, names: [] },
+    { writeEnabled: true, writableAreas: ['invoices'], financial: true, names: V2_WRITE_TOOL_NAMES }
+  ] as const)(
+    'applies every invoice gate to v2 execution-tool discovery: $writeEnabled/$financial',
+    async ({ writeEnabled, writableAreas, financial, names }) => {
+      const appConfig = {
+        ...config({ writeEnabled, writableAreas, financialWritesEnabled: financial }),
+        v2ApiToken: 'fake-v2-token'
+      };
+      const client = await connectedClient(appConfig, fakeClient() as unknown as AroFloClient, {
+        v2Client: {} as AroFloV2Client,
+        v2Confirmations: new V2ConfirmationStore()
+      });
+
+      const discovered = (await client.listTools()).tools.map((tool) => tool.name)
+        .filter((name) => (V2_WRITE_TOOL_NAMES as readonly string[]).includes(name));
+
+      expect(discovered).toEqual(names);
+    }
+  );
+
   it.each([
     { name: 'general write false', writeEnabled: false, writableAreas: ['tasks', 'invoices'], financial: true, enabled: [] },
     { name: 'empty allowlist', writeEnabled: true, writableAreas: [], financial: true, enabled: [] },

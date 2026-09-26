@@ -29,6 +29,7 @@ export interface AppConfig {
   writeEnabled: boolean;
   writableAreas: ReadonlySet<Area>;
   financialWritesEnabled: boolean;
+  v2ApiToken?: string;
   mcpAccessToken?: string;
   bindHost: string;
   allowedHosts: ReadonlySet<string>;
@@ -195,6 +196,7 @@ const envSchema = z
     AROFLO_ORG_ENCODED: requiredSecret('AROFLO_ORG_ENCODED'),
     AROFLO_SECRET_KEY: requiredSecret('AROFLO_SECRET_KEY'),
     AROFLO_HOST_IP: optionalNonBlankString,
+    AROFLO_V2_API_TOKEN: optionalNonBlankString,
     AROFLO_WRITE_ENABLED: exactBoolean,
     AROFLO_WRITABLE_AREAS: z
       .string()
@@ -267,6 +269,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     writeEnabled: parsed.AROFLO_WRITE_ENABLED,
     writableAreas: new Set(parsed.AROFLO_WRITABLE_AREAS),
     financialWritesEnabled: parsed.AROFLO_FINANCIAL_WRITES_ENABLED,
+    ...(parsed.AROFLO_V2_API_TOKEN === undefined ? {} : { v2ApiToken: parsed.AROFLO_V2_API_TOKEN }),
     ...(parsed.MCP_ACCESS_TOKEN === undefined ? {} : { mcpAccessToken: parsed.MCP_ACCESS_TOKEN }),
     bindHost: parsed.MCP_BIND_HOST,
     allowedHosts: new Set(

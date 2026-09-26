@@ -12,6 +12,12 @@ export interface RateLimiterOptions {
   limits?: RateLimits;
 }
 
+export interface RequestBudget {
+  acquire(): Promise<void>;
+  getDailyUsed(): number;
+  getDailyLimit(): number;
+}
+
 export const DEFAULT_RATE_LIMITS: Readonly<RateLimits> = Object.freeze({
   second: 1,
   minute: 60,

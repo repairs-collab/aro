@@ -15,6 +15,7 @@ function config(writableAreas: readonly Area[] = ['tasks']): AppConfig {
     writeEnabled: true,
     writableAreas: new Set(writableAreas),
     financialWritesEnabled: false,
+    v2ApiToken: 'fake-v2-token',
     bindHost: '127.0.0.1',
     allowedHosts: new Set(['localhost', '127.0.0.1', '[::1]']),
     port: 3000,
@@ -45,7 +46,7 @@ describe('AroFlo write tools', () => {
     const client = fakeClient();
     client.post.mockResolvedValueOnce({
       taskid: 'task-created',
-      message: 'Saved using fake-secret',
+      message: 'Saved using fake-secret and fake-v2-token',
       raw: '<private-upstream-body />'
     });
     const tool = definition(
@@ -74,7 +75,7 @@ describe('AroFlo write tools', () => {
       area: 'tasks',
       id: 'task-created',
       success: true,
-      upstreamMessage: 'Saved using [REDACTED]'
+      upstreamMessage: 'Saved using [REDACTED] and [REDACTED]'
     });
     expect(JSON.stringify(result)).not.toMatch(/private-upstream-body|postxml|<tasks>/i);
   });

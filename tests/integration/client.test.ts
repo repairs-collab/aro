@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../../src/config.js';
 import { AroFloClient } from '../../src/aroflo/client.js';
 import { ConnectorError, RateBudgetExceededError } from '../../src/aroflo/errors.js';
@@ -156,6 +156,29 @@ describe('AroFloClient wire contract', () => {
     });
   });
 
+  it('uses an injected request budget for legacy GETs and reports its daily values', async () => {
+    const server = await fakeServer();
+    server.queue({ body: await fixture('read-success.json') });
+    const requestBudget = {
+      acquire: vi.fn(async () => undefined),
+      getDailyUsed: vi.fn(() => 7),
+      getDailyLimit: vi.fn(() => 1900)
+    };
+    const client = new AroFloClient({
+      config,
+      baseUrl: server.baseUrl,
+      now: fixedNow,
+      requestBudget
+    });
+
+    await expect(client.search({ area: 'tasks' })).resolves.toMatchObject({
+      rateBudget: { dailyUsed: 7, dailySoftLimit: 1900 }
+    });
+    expect(requestBudget.acquire).toHaveBeenCalledOnce();
+    expect(requestBudget.getDailyUsed).toHaveBeenCalledOnce();
+    expect(requestBudget.getDailyLimit).toHaveBeenCalledOnce();
+  });
+
   it('accepts the official status-zero body and nested paging fields', async () => {
     const server = await fakeServer();
     server.queue({
@@ -304,6 +327,36 @@ describe('AroFloClient failures and retries', () => {
     expect(delays).toEqual([2_000]);
     expect(server.requests).toHaveLength(2);
   });
+
+  it.each(['Infinity', '2147484', 'not-a-delay', '-1'])(
+    'does not retry a rate limit with unsafe Retry-After %s',
+    async (retryAfter) => {
+      const server = await fakeServer();
+      server.queue({
+        status: 429,
+        headers: { 'retry-after': retryAfter },
+        body: { status: 'ERROR', statusmessage: 'Wait' }
+      });
+      const delays: number[] = [];
+      const client = new AroFloClient({
+        config,
+        baseUrl: server.baseUrl,
+        now: fixedNow,
+        sleep: async (ms) => {
+          delays.push(ms);
+        },
+        random: () => 0,
+        rateLimits: { second: 10_000, minute: 10_000, daily: 1_900 }
+      });
+
+      await expect(client.search({ area: 'tasks', fresh: true })).rejects.toMatchObject({
+        code: 'RATE_LIMIT',
+        retryable: true
+      });
+      expect(server.requests).toHaveLength(1);
+      expect(delays).toEqual([]);
+    }
+  );
 
   it('rejects malformed JSON and oversized raw responses with stable codes', async () => {
     const server = await fakeServer();

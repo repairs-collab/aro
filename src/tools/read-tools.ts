@@ -4,16 +4,15 @@ import type { AroFloClient, AroFloPage } from '../aroflo/client.js';
 import { previewChange } from '../aroflo/change-compiler.js';
 import { ConnectorError } from '../aroflo/errors.js';
 import { describeArea } from '../aroflo/area-registry.js';
-import type { AppConfig } from '../config.js';
+import type { ToolDependencies } from './dependencies.js';
 import { asToolError, asToolResult, invalidInputResult, type ConnectorToolResult } from './result.js';
 import { connectionStatusSchema, describeAreaSchema, getRecordSchema, listChangesSchema, previewChangeSchema, searchRecordsSchema, type GetRecordInput, type ListChangesInput, type PreviewChangeInput, type SearchRecordsInput } from './schemas.js';
 
 export const READ_TOOL_NAMES = ['aroflo_connection_status', 'aroflo_describe_area', 'aroflo_search_records', 'aroflo_get_record', 'aroflo_list_changes', 'aroflo_preview_change'] as const;
-export interface ToolDependencies { config: AppConfig; client: AroFloClient }
 export interface ReadToolDefinition { name: (typeof READ_TOOL_NAMES)[number]; title: string; description: string; inputSchema: z.ZodType; annotations: ToolAnnotations; execute(input: unknown): Promise<ConnectorToolResult>; }
 const READ_ONLY_ANNOTATIONS: ToolAnnotations = Object.freeze({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true });
 
-function secrets(config: AppConfig): readonly string[] { return [config.credentials.uEncoded, config.credentials.pEncoded, config.credentials.orgEncoded, config.credentials.secretKey, ...(config.credentials.hostIp === undefined ? [] : [config.credentials.hostIp]), ...(config.mcpAccessToken === undefined ? [] : [config.mcpAccessToken])]; }
+function secrets(config: ToolDependencies['config']): readonly string[] { return [config.credentials.uEncoded, config.credentials.pEncoded, config.credentials.orgEncoded, config.credentials.secretKey, ...(config.credentials.hostIp === undefined ? [] : [config.credentials.hostIp]), ...(config.v2ApiToken === undefined ? [] : [config.v2ApiToken]), ...(config.mcpAccessToken === undefined ? [] : [config.mcpAccessToken])]; }
 function assertPageBound(page: AroFloPage): void { if (page.records.length > 500) throw new ConnectorError('RESPONSE_TOO_LARGE', 'Too many records'); }
 
 function definition<T>(dependencies: ToolDependencies, name: ReadToolDefinition['name'], title: string, description: string, inputSchema: z.ZodType<T>, handler: (input: T) => Promise<unknown> | unknown): ReadToolDefinition {
